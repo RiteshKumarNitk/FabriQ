@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Redirect } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Public } from './common/decorators';
 
@@ -17,6 +17,7 @@ export class AppController {
 
   @Public()
   @Get()
+  @Redirect('/api/docs', 302)
   root() {
     return {
       message: 'FabriQ API is running on Vercel!',
@@ -25,3 +26,4 @@ export class AppController {
     };
   }
 }
+
