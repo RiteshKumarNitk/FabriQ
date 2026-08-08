@@ -13,8 +13,8 @@ separate projects in this monorepo.
   - `WEB_ORIGIN` — comma-separated list of allowed web origins, e.g.
     `https://fabriq-web.vercel.app` (CORS allow-list).
   - `WEB_APP_URL` — optional; the public URL of the deployed web app. When set,
-    the API landing page (`/`) shows a "FabriQ Web App" link; when empty the
-    link is hidden.
+    the API root (`/`) redirects to it — the web app becomes the default entry
+    point. When empty, the branded landing page is shown instead.
   - `NODE_ENV=production`.
   - `PORT` — optional; Vercel injects its own port, so the app binds to whatever
     is provided.

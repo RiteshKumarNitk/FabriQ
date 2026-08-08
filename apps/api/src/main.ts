@@ -68,10 +68,17 @@ async function bootstrap() {
 
   const expressApp = app.getHttpAdapter().getInstance();
 
-  // Branded landing page at the root (replaces the old redirect to /api/docs).
-  expressApp.get('/', (_req: Request, res: Response) =>
-    res.type('text/html').send(buildLandingPage(env.webAppUrl, env.nodeEnv)),
-  );
+  // Root: once the web app is deployed, WEB_APP_URL makes the API root hand
+  // over to it (the app becomes the default entry point). Without WEB_APP_URL
+  // a branded landing page is shown instead.
+  const landingPageHtml = buildLandingPage(env.webAppUrl, env.nodeEnv);
+  expressApp.get('/', (_req: Request, res: Response) => {
+    if (env.webAppUrl) {
+      res.redirect(302, env.webAppUrl);
+      return;
+    }
+    res.type('text/html').send(landingPageHtml);
+  });
   // Live status bootstrap for the landing page (external file: CSP-safe).
   expressApp.get(LANDING_STATUS_JS_PATH, (_req: Request, res: Response) =>
     res.type('application/javascript').send(LANDING_STATUS_JS),
