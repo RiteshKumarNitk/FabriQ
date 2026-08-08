@@ -37,9 +37,10 @@ export const env = {
   },
   webOrigins: optional('WEB_ORIGIN', 'http://localhost:3000,http://127.0.0.1:3000').split(',').map((s) => s.trim()),
   // Public URL of the deployed web app (the login page is the default entry
-  // point — the API root redirects here). Defaults to the live deployment and
-  // is overridable via WEB_APP_URL when a custom domain is used.
-  webAppUrl: optional('WEB_APP_URL', 'https://fabriqjpr.vercel.app'),
+  // point — the API root redirects here). Overridable via WEB_APP_URL. NOTE:
+  // never point this at the API's own domain (fabri-q.vercel.app) while the API
+  // serves it — that would create a redirect loop.
+  webAppUrl: optional('WEB_APP_URL', 'https://fabri-q.vercel.app'),
   // Local disk only for Phase 1 (YAGNI). When Cloudinary/S3 is required,
   // swap the FileService internals — the rest of the app is unaffected.
   storage: {
