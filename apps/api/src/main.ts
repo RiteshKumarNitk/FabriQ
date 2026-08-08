@@ -11,6 +11,11 @@ import {
   DOCS_JSON_PATH,
   DOCS_PAGE_HTML,
 } from './docs/docs-page';
+import {
+  buildLandingPage,
+  LANDING_STATUS_JS,
+  LANDING_STATUS_JS_PATH,
+} from './docs/landing-page';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -61,11 +66,20 @@ async function bootstrap() {
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
 
+  const expressApp = app.getHttpAdapter().getInstance();
+
+  // Branded landing page at the root (replaces the old redirect to /api/docs).
+  expressApp.get('/', (_req: Request, res: Response) =>
+    res.type('text/html').send(buildLandingPage(env.webAppUrl, env.nodeEnv)),
+  );
+  // Live status bootstrap for the landing page (external file: CSP-safe).
+  expressApp.get(LANDING_STATUS_JS_PATH, (_req: Request, res: Response) =>
+    res.type('application/javascript').send(LANDING_STATUS_JS),
+  );
+
   // Docs are served by hand (a self-contained HTML string + the raw OpenAPI
   // JSON) instead of SwaggerModule.setup, whose UI assets are streamed from
   // node_modules/swagger-ui-dist and 404 on Vercel serverless functions.
-  // The root redirect in AppController (/ → /api/docs) keeps working unchanged.
-  const expressApp = app.getHttpAdapter().getInstance();
   expressApp.get('/api/docs', (_req: Request, res: Response) =>
     res.type('text/html').send(DOCS_PAGE_HTML),
   );

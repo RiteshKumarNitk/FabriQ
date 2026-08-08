@@ -36,6 +36,9 @@ export const env = {
     refreshExpiresIn: optional('JWT_REFRESH_EXPIRES_IN', '7d'),
   },
   webOrigins: optional('WEB_ORIGIN', 'http://localhost:3000,http://127.0.0.1:3000').split(',').map((s) => s.trim()),
+  // Public URL of the deployed web app, surfaced on the API landing page (root).
+  // Empty until the web app is deployed — the landing page omits the link then.
+  webAppUrl: optional('WEB_APP_URL', ''),
   // Local disk only for Phase 1 (YAGNI). When Cloudinary/S3 is required,
   // swap the FileService internals — the rest of the app is unaffected.
   storage: {
