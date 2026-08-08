@@ -1,22 +1,23 @@
 /**
- * Branded landing page served at the API root (`/`) — replaces the old
- * redirect to /api/docs.
+ * API status/report page — served at `/status`.
  *
- * Like the docs page, it is fully self-contained: the HTML is a string and the
- * live status is driven by an external '/api/status.js' file (an inline script
- * would be blocked by the API's strict CSP — no 'unsafe-inline' in script-src).
+ * The root path no longer shows this page: it redirects to the deployed web
+ * app (the login page is the default entry point). Like the docs page, this
+ * page is fully self-contained: the HTML is a string and the live status is
+ * driven by an external '/api/status.js' file (an inline script would be
+ * blocked by the API's strict CSP — no 'unsafe-inline' in script-src).
  */
 
-export const LANDING_STATUS_JS_PATH = '/api/status.js';
+export const STATUS_JS_PATH = '/api/status.js';
 
 /**
- * Builds the landing page. `webAppUrl` is the deployed web app URL (empty when
- * not configured — the web-app link is then omitted); `environment` is shown
- * as a small badge in the footer.
+ * Builds the status page. `webAppUrl` is the deployed web app URL (surfaces a
+ * "Web App" link in the topbar); `environment` is shown as a small badge in
+ * the footer.
  */
-export function buildLandingPage(webAppUrl: string, environment: string): string {
-  const webAppCard = webAppUrl
-    ? `<li><a href="${webAppUrl}">🚀 FabriQ Web App<span class="arrow">→</span></a></li>`
+export function buildStatusPage(webAppUrl: string, environment: string): string {
+  const webAppLink = webAppUrl
+    ? `<a href="${webAppUrl}">Web App</a>`
     : '';
 
   return `<!DOCTYPE html>
@@ -24,7 +25,7 @@ export function buildLandingPage(webAppUrl: string, environment: string): string
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>FabriQ API</title>
+  <title>FabriQ API — Status</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧵</text></svg>" />
   <style>
     :root { --navy:#0f172a; --accent:#34d399; --bg:#f1f5f9; --text:#0f172a; --muted:#64748b; }
@@ -69,15 +70,16 @@ export function buildLandingPage(webAppUrl: string, environment: string): string
   <header class="topbar">
     <span class="logo">FabriQ<b>API</b></span>
     <nav>
+      ${webAppLink}
       <a href="/api/docs">API Docs</a>
       <a href="/api/v1/health">Health</a>
     </nav>
   </header>
 
   <section class="hero">
-    <span class="eyebrow">Enterprise Garment Manufacturing Platform</span>
+    <span class="eyebrow">API Status &amp; Service Report</span>
     <h1>FabriQ <span>API</span></h1>
-    <p class="tagline">Multi-tenant platform for garment manufacturers — organization, identity, procurement and production workflows, served as a modern REST API.</p>
+    <p class="tagline">Service health and platform statistics for the FabriQ garment manufacturing platform.</p>
     <span class="status-pill">
       <span class="dot" id="status-dot"></span>
       <span id="status-label">Checking…</span>
@@ -102,7 +104,6 @@ export function buildLandingPage(webAppUrl: string, environment: string): string
           <li><a href="/api/docs">📖 Interactive API Docs<span class="arrow">→</span></a></li>
           <li><a href="/api/docs-json">📄 OpenAPI Spec (JSON)<span class="arrow">→</span></a></li>
           <li><a href="/api/v1/health">❤️ Health Check<span class="arrow">→</span></a></li>
-          ${webAppCard}
         </ul>
       </div>
     </div>
@@ -113,7 +114,7 @@ export function buildLandingPage(webAppUrl: string, environment: string): string
     <span class="env">${environment}</span>
   </footer>
 
-  <script src="${LANDING_STATUS_JS_PATH}"></script>
+  <script src="${STATUS_JS_PATH}"></script>
 </body>
 </html>
 `;
@@ -124,7 +125,7 @@ export function buildLandingPage(webAppUrl: string, environment: string): string
  * health endpoint and loads the OpenAPI spec to populate the status pill and
  * the platform KPIs.
  */
-export const LANDING_STATUS_JS = `
+export const STATUS_JS = `
 (function () {
   var dot = document.getElementById('status-dot');
   var label = document.getElementById('status-label');

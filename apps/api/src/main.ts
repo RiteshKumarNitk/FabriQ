@@ -11,11 +11,7 @@ import {
   DOCS_JSON_PATH,
   DOCS_PAGE_HTML,
 } from './docs/docs-page';
-import {
-  buildLandingPage,
-  LANDING_STATUS_JS,
-  LANDING_STATUS_JS_PATH,
-} from './docs/landing-page';
+import { buildStatusPage, STATUS_JS, STATUS_JS_PATH } from './docs/status-page';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -68,20 +64,18 @@ async function bootstrap() {
 
   const expressApp = app.getHttpAdapter().getInstance();
 
-  // Root: once the web app is deployed, WEB_APP_URL makes the API root hand
-  // over to it (the app becomes the default entry point). Without WEB_APP_URL
-  // a branded landing page is shown instead.
-  const landingPageHtml = buildLandingPage(env.webAppUrl, env.nodeEnv);
+  // Root: the web app (login page) is the default entry point — redirect there.
+  // The API status/report page moved to /status.
+  const statusPageHtml = buildStatusPage(env.webAppUrl, env.nodeEnv);
   expressApp.get('/', (_req: Request, res: Response) => {
-    if (env.webAppUrl) {
-      res.redirect(302, env.webAppUrl);
-      return;
-    }
-    res.type('text/html').send(landingPageHtml);
+    res.redirect(302, env.webAppUrl || '/status');
   });
-  // Live status bootstrap for the landing page (external file: CSP-safe).
-  expressApp.get(LANDING_STATUS_JS_PATH, (_req: Request, res: Response) =>
-    res.type('application/javascript').send(LANDING_STATUS_JS),
+  expressApp.get('/status', (_req: Request, res: Response) =>
+    res.type('text/html').send(statusPageHtml),
+  );
+  // Live status bootstrap for the status page (external file: CSP-safe).
+  expressApp.get(STATUS_JS_PATH, (_req: Request, res: Response) =>
+    res.type('application/javascript').send(STATUS_JS),
   );
 
   // Docs are served by hand (a self-contained HTML string + the raw OpenAPI

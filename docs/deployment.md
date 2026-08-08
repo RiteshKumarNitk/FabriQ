@@ -12,15 +12,17 @@ separate projects in this monorepo.
   - `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` — strong random strings.
   - `WEB_ORIGIN` — comma-separated list of allowed web origins, e.g.
     `https://fabriq-web.vercel.app` (CORS allow-list).
-  - `WEB_APP_URL` — optional; the public URL of the deployed web app. When set,
-    the API root (`/`) redirects to it — the web app becomes the default entry
-    point. When empty, the branded landing page is shown instead.
+  - `WEB_APP_URL` — public URL of the deployed web app (defaults to
+    `https://fabriq-web.vercel.app`). The API root (`/`) redirects to it, so the
+    web app login is the default entry point. Override when using a custom
+    domain.
   - `NODE_ENV=production`.
   - `PORT` — optional; Vercel injects its own port, so the app binds to whatever
     is provided.
 - **Health check:** `https://<api-domain>/api/v1/health`.
-- **Root path** `/` serves a branded landing page (live API status, spec KPIs,
-  links to docs/health, and the web app when `WEB_APP_URL` is set).
+- **Root path** `/` redirects to the web app (login page). The API status/report
+  page lives at `/status` (live API status, spec KPIs, links to docs/health).
+- **Docs** at `/api/docs` and the raw OpenAPI spec at `/api/docs-json`.
 
 ### Swagger docs (`/api/docs`)
 
