@@ -5,8 +5,13 @@ separate projects in this monorepo.
 
 ## API (`apps/api`) — NestJS
 
-- **Project settings:** Root directory `apps/api`, Framework preset *Other*, Build
-  command `npm run build` (runs `tsc`), Output/Start command `node dist/main.js`.
+- **Project settings:** Root directory `apps/api`, Framework preset *Other*, Start
+  command `node dist/main.js` (the package.json `start` script).
+- **Build is self-contained:** `apps/api/vercel.json` sets the build command to
+  build the workspace packages first:
+  `npm run build -w @fabriq/shared && npm run build -w @fabriq/database && npm run build`
+  (the API imports `@fabriq/shared` and `@fabriq/database` from their gitignored
+  `dist/` folders, so they must be built before the API's `tsc` run).
 - **Environment variables (all required unless noted):**
   - `DATABASE_URL` — Neon Postgres connection string.
   - `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` — strong random strings.
@@ -41,7 +46,9 @@ the API's CSP (helmet) allows `cdn.jsdelivr.net` for scripts/styles only.
     falls back to `http://localhost:3001/api/v1` locally, which silently breaks a
     production build if unset — set it!).
 - Remember to add the web app's origin to the API's `WEB_ORIGIN` or CORS will
-  reject browser requests.
+  reject browser requests. Example live pair: web at `fabriqjpr.vercel.app`, API
+  at `fabri-q-api-rho.vercel.app` → API env `WEB_ORIGIN=https://fabriqjpr.vercel.app`
+  and web env `NEXT_PUBLIC_API_URL=https://fabri-q-api-rho.vercel.app/api/v1`.
 
 ## Local vs. serverless differences to remember
 
