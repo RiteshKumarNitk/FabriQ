@@ -47,8 +47,8 @@ the API's CSP (helmet) allows `cdn.jsdelivr.net` for scripts/styles only.
     production build if unset — set it!).
 - Remember to add the web app's origin to the API's `WEB_ORIGIN` or CORS will
   reject browser requests. Example live pair: web at `fabriqjpr.vercel.app`, API
-  at `fabri-q-api-rho.vercel.app` → API env `WEB_ORIGIN=https://fabriqjpr.vercel.app`
-  and web env `NEXT_PUBLIC_API_URL=https://fabri-q-api-rho.vercel.app/api/v1`.
+  at `fabri-q-api.vercel.app` → API env `WEB_ORIGIN=https://fabriqjpr.vercel.app`
+  and web env `NEXT_PUBLIC_API_URL=https://fabri-q-api.vercel.app/api/v1`.
 
 ## Local vs. serverless differences to remember
 

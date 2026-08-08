@@ -39,7 +39,7 @@ export const env = {
   // Public URL of the deployed web app (the login page is the default entry
   // point — the API root redirects here). Defaults to the live deployment and
   // is overridable via WEB_APP_URL when a custom domain is used.
-  webAppUrl: optional('WEB_APP_URL', 'https://fabriq-web.vercel.app'),
+  webAppUrl: optional('WEB_APP_URL', 'https://fabriqjpr.vercel.app'),
   // Local disk only for Phase 1 (YAGNI). When Cloudinary/S3 is required,
   // swap the FileService internals — the rest of the app is unaffected.
   storage: {
