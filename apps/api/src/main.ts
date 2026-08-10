@@ -67,8 +67,23 @@ async function bootstrap() {
   // Root: the web app (login page) is the default entry point — redirect there.
   // The API status/report page moved to /status.
   const statusPageHtml = buildStatusPage(env.webAppUrl, env.nodeEnv);
-  expressApp.get('/', (_req: Request, res: Response) => {
-    res.redirect(302, env.webAppUrl || '/status');
+  expressApp.get('/', (req: Request, res: Response) => {
+    // Safety net: if WEB_APP_URL points at the API's own domain (a common
+    // misconfiguration), the root would redirect to itself forever. Detect the
+    // request's own Host and fall back to the status page instead.
+    const host = req.headers.host;
+    const webApp = env.webAppUrl || '';
+    let webAppHost = '';
+    try {
+      webAppHost = new URL(webApp).host;
+    } catch {
+      // fall through — treat as unusable
+    }
+    if (!host || !webAppHost || !host.includes(webAppHost)) {
+      res.redirect(302, webApp || '/status');
+      return;
+    }
+    res.type('text/html').send(statusPageHtml);
   });
   expressApp.get('/status', (_req: Request, res: Response) =>
     res.type('text/html').send(statusPageHtml),
