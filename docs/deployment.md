@@ -1,7 +1,134 @@
-# Deployment — Vercel
+# Deployment — Vercel (from scratch)
 
-The platform is designed to run serverless-friendly. Both apps deploy to Vercel as
-separate projects in this monorepo.
+This is the complete guide to deploy FabriQ to Vercel **fresh** — after deleting
+all Vercel projects. The platform is a monorepo with **two separate apps**, and
+each one is its own Vercel project:
+
+| App | Code | Framework | Vercel project |
+|---|---|---|---|
+| **API** (backend) | `apps/api` | NestJS | `fabri-q` |
+| **Web app** (UI/login) | `apps/web` | Next.js | `fabriq` |
+
+> Two Vercel projects is correct and required — Vercel deploys ONE root
+> directory per project, and these are two different apps with different
+> frameworks, builds, and env vars.
+
+---
+
+## Prerequisites (do once)
+
+- Code pushed to GitHub: `github.com/RiteshKumarNitk/FabriQ` (branch `main`).
+- Neon Postgres database exists (the app connects to it; no Vercel DB needed).
+
+---
+
+## Step 1 — Deploy the API first
+
+1. **vercel.com → Add New… → Project** → Import **`RiteshKumarNitk/FabriQ`**.
+2. **Root Directory:** select **`apps/api`**.
+3. **Framework Preset:** *Other* (or *NestJS* — either works).
+4. **Build Command:** leave the default (it reads `apps/api/vercel.json`, which
+   builds `@fabriq/shared` → `@fabriq/database` → the API, in the right order).
+5. **Start Command:** `node dist/main.js`.
+6. **Node.js Version:** `20.x` (package requires `>=20`).
+7. **Environment Variables** (all required):
+
+   ```
+   DATABASE_URL=postgresql://<user>:<password>@<host>.neon.tech/<db>?sslmode=require
+   JWT_ACCESS_SECRET=<strong random, e.g. openssl rand -base64 48>
+   JWT_REFRESH_SECRET=<strong random, e.g. openssl rand -base64 48>
+   JWT_ACCESS_EXPIRES_IN=15m
+   JWT_REFRESH_EXPIRES_IN=7d
+   ```
+
+   > Do NOT set `PORT` or `NODE_ENV` — Vercel injects them itself.
+
+8. Click **Deploy**. Note the API URL you get (e.g. `https://fabri-q-xxx.vercel.app`).
+9. Verify: open `https://<api-url>/api/v1/health` → should return
+   `{"success":true,...}`.
+
+---
+
+## Step 2 — Deploy the web app
+
+1. **Add New… → Project** → Import **`RiteshKumarNitk/FabriQ`** (same repo).
+2. **Root Directory:** select **`apps/web`**.
+3. **Framework Preset:** *Next.js* (auto-detected).
+4. **Build Command:** replace with:
+
+   ```
+   npm run build -w @fabriq/shared && npm run build
+   ```
+
+   (`@fabriq/shared` ships as gitignored `dist/`, so a fresh clone must build it
+   before `next build`.)
+5. **Node.js Version:** `20.x`.
+6. **Environment Variable** (set BEFORE the first build — it is inlined at
+   build time):
+
+   ```
+   NEXT_PUBLIC_API_URL=https://<api-url>/api/v1
+   ```
+
+   (Use the API URL from Step 1 — e.g. `https://fabri-q-xxx.vercel.app/api/v1`.)
+7. Click **Deploy**. Note the web URL you get (e.g. `https://fabriq-xxx.vercel.app`).
+
+---
+
+## Step 3 — Wire the two together (CORS + redirect)
+
+On the **API project** (`fabri-q`) → Settings → Environment Variables, add
+(replace `<web-url>` with the web URL from Step 2):
+
+```
+WEB_ORIGIN=https://<web-url>
+WEB_APP_URL=https://<web-url>
+```
+
+- `WEB_ORIGIN` is the CORS allow-list — without it, the browser blocks every
+  API call from the web app.
+- `WEB_APP_URL` makes the API root (`/`) redirect to the web app login page.
+  **Never set it to the API's own domain** — the code also guards against this
+  (root then shows the status page instead of looping).
+
+Vercel auto-redeploys the API when env vars change (~1 min).
+
+---
+
+## Done — the final setup
+
+| Thing | URL |
+|---|---|
+| **Web app (login)** | `https://<web-url>` |
+| **API** | `https://<api-url>` |
+| **API health** | `https://<api-url>/api/v1/health` |
+| **Swagger docs** | `https://<api-url>/api/docs` |
+| **Status page** | `https://<api-url>/status` |
+
+Login: `owner@acme.test / Demo@123` (tenant admin) or
+`admin@fabriq.local / Admin@123` (platform admin).
+
+---
+
+## If something breaks
+
+- **Web loads but login fails / "Failed to fetch"** → the API URL baked into the
+  web build is wrong. Check `NEXT_PUBLIC_API_URL` in the web project's env,
+  then **⋯ → Redeploy** (it is only read at build time).
+- **Browser console shows a CORS error** → the API's `WEB_ORIGIN` doesn't
+  include the web URL. Fix it in the API project env (auto-redeploys).
+- **`/` on the API loops or looks dead** → `WEB_APP_URL` points at the API's own
+  domain. Set it to the web URL (the code now falls back to the status page
+  instead of looping, but fix the env).
+- **Build fails on `@fabriq/shared`** → the build command is wrong. API should
+  use `apps/api/vercel.json` (default); web should be
+  `npm run build -w @fabriq/shared && npm run build`.
+- **DB errors on the API** → `DATABASE_URL` is wrong/unset; check the Neon
+  connection string and that `sslmode=require` is present.
+
+---
+
+# Deployment — reference (original)
 
 ## API (`apps/api`) — NestJS
 
