@@ -40,7 +40,7 @@ export const env = {
   // point — the API root redirects here). Overridable via WEB_APP_URL. NOTE:
   // never point this at the API's own domain (fabri-q.vercel.app) while the API
   // serves it — that would create a redirect loop.
-  webAppUrl: optional('WEB_APP_URL', 'https://fabri-q.vercel.app'),
+  webAppUrl: optional('WEB_APP_URL', 'https://fabriq.vercel.app'),
   // Local disk only for Phase 1 (YAGNI). When Cloudinary/S3 is required,
   // swap the FileService internals — the rest of the app is unaffected.
   storage: {

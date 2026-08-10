@@ -16,11 +16,12 @@ separate projects in this monorepo.
   - `DATABASE_URL` — Neon Postgres connection string.
   - `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` — strong random strings.
   - `WEB_ORIGIN` — comma-separated list of allowed web origins, e.g.
-    `https://fabriq-web.vercel.app` (CORS allow-list).
+    `https://fabriq.vercel.app` (CORS allow-list).
   - `WEB_APP_URL` — public URL of the deployed web app (defaults to
-    `https://fabriq-web.vercel.app`). The API root (`/`) redirects to it, so the
+    `https://fabriq.vercel.app`). The API root (`/`) redirects to it, so the
     web app login is the default entry point. Override when using a custom
-    domain.
+    domain. NEVER set this to the API's own domain (`fabri-q.vercel.app`) — the
+    root becomes a redirect loop.
   - `NODE_ENV=production`.
   - `PORT` — optional; Vercel injects its own port, so the app binds to whatever
     is provided.
