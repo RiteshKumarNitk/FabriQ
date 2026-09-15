@@ -424,6 +424,11 @@ async function main() {
   await ensureSequence(tenant.id, 'GRN', year, 0);
   await ensureSequence(tenant.id, 'INSP', year, 0);
   await ensureSequence(tenant.id, 'WR', year, 0);
+  await ensureSequence(tenant.id, 'R', year, 0); // fabric rolls
+  await ensureSequence(tenant.id, 'MK', year, 0); // markers
+  await ensureSequence(tenant.id, 'CO', year, 0); // cut orders
+  await ensureSequence(tenant.id, 'LP', year, 0); // lay plans
+  await ensureSequence(tenant.id, 'CT', year, 0); // cut operations
   console.log('✔ document sequences synced');
 
   console.log('\n✔ Seed complete.');

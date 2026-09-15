@@ -81,6 +81,21 @@ model Tenant {
   inspectionDefects  FabricInspectionDefect[]
   warehouseReceipts  WarehouseReceipt[]
   stockTransactions  StockTransaction[]
+
+  // Phase 3 — Cutting Room
+  fabricRolls        FabricRoll[]
+  markers            Marker[]
+  cutOrders          CutOrder[]
+  measurementSessions FabricMeasurement[]
+  fabricSegments     FabricSegment[]
+  fabricDefects      FabricDefect[]
+  rollTransactions   RollTransaction[]
+  patternSets        PatternSet[]
+  patternPieces      PatternPiece[]
+  markerPieces       MarkerPiece[]
+  markerRevisions    MarkerRevision[]
+  layPlans           LayPlan[]
+  cutOperations      CutOperation[]
 }
 
 // ── Organization ───────────────────────────────────────────────────────────
@@ -293,6 +308,8 @@ model User {
   // Phase 2 — Procurement
   requestedRequisitions PurchaseRequisition[] @relation("RequisitionRequester")
   inspections          FabricInspection[]    @relation("FabricInspector")
+  // Phase 3 — Cutting Room
+  rollMeasurements      FabricMeasurement[]   @relation("RollMeasurer")
 
   @@index([tenantId])
   @@index([email])
@@ -900,6 +917,7 @@ model GrnRoll {
   purchaseOrderItem PurchaseOrderItem?   @relation(fields: [purchaseOrderItemId], references: [id])
   inspection        FabricInspection?
   warehouseReceipts WarehouseReceipt[]
+  fabricRolls       FabricRoll[]
 
   @@index([tenantId])
   @@index([grnId])
@@ -1011,6 +1029,520 @@ model StockTransaction {
 
   @@index([tenantId, warehouseId, createdOn])
   @@index([tenantId, itemName])
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// PHASE 3 — CUTTING ROOM
+//
+// Fabric measurement, roll visualization, marker planning, lay planning and
+// actual consumption tracking.
+//
+// Material model: a FabricRoll is a CONTINUOUS source of fabric. Cutting
+// never splits the physical roll — it writes transactions (RollTransaction)
+// and logical spans (FabricSegment) against it. Remaining length is always
+// derived from the ledger, never overwritten.
+//
+// Units: all lengths/areas are stored in the base unit CENTIMETERS (cm) and
+// SQUARE CENTIMETERS. The UI converts to the user's display unit only at
+// render time — calculations never run on display strings.
+//
+// Estimated vs Planned vs Actual: planning numbers (marker efficiency, lay
+// output) are stored on Marker/LayPlan as `*Planned`; real results are
+// recorded on CutOperation as `*Actual`. They are never mixed.
+// ══════════════════════════════════════════════════════════════════════════
+
+model FabricRoll {
+  id              String           @id @default(uuid())
+  tenantId        String
+  number          String // e.g. R-00125 (per-tenant sequence)
+  // ── identity ──
+  grnRollId       String? // link to procurement when the roll arrived via GRN
+  fabricName      String?
+  fabricType      String?
+  color           String?
+  shadeLot        String?
+  supplierRef     String?
+  gsm             Decimal?         @db.Decimal(6, 2)
+  // ── measurements (base unit: cm; UI converts for display) ──
+  originalLengthCm Decimal         @default(0) @db.Decimal(12, 2)
+  remainingLengthCm Decimal       @default(0) @db.Decimal(12, 2) // ledger-derived, maintained by the service layer
+  widthCm         Decimal          @default(0) @db.Decimal(8, 2) // nominal width
+  usableWidthCm   Decimal          @default(0) @db.Decimal(8, 2) // confirmed usable width (inside selvedge)
+  weightKg        Decimal?         @db.Decimal(12, 3)
+  lengthUnit      LengthUnit       @default(METERS) // display preference for this roll
+  widthUnit       LengthUnit       @default(INCHES) // display preference for widths
+  // ── multi-point width measurement summary ──
+  minWidthCm      Decimal?
+  maxWidthCm      Decimal?
+  avgWidthCm      Decimal?
+  measurementNote String?
+  // ── lifecycle ──
+  status          FabricRollStatus @default(DRAFT)
+  cutQtyPlanned   Int              @default(0) // garments planned across lays (planned view)
+  cutQtyActual    Int              @default(0) // garments actually cut (actual view)
+  notes           String?
+  createdOn       DateTime         @default(now())
+  createdBy       String?
+  updatedOn       DateTime         @updatedAt
+  updatedBy       String?
+  deletedOn       DateTime?
+  deletedBy       String?
+  isDeleted       Boolean          @default(false)
+  version         Int              @default(0)
+
+  tenant        Tenant            @relation(fields: [tenantId], references: [id])
+  grnRoll       GrnRoll?          @relation(fields: [grnRollId], references: [id])
+  measurements  FabricMeasurement[]
+  segments      FabricSegment[]
+  defects       FabricDefect[]
+  transactions  RollTransaction[]
+  layPlans      LayPlan[]
+  cutOperations CutOperation[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId])
+  @@index([tenantId, status])
+}
+
+/// One measurement session on a roll (length check + multi-point width).
+/// Multiple width readings: beginning / middle / end (+ extra points).
+model FabricMeasurement {
+  id            String     @id @default(uuid())
+  tenantId      String
+  rollId        String
+  measuredOn    DateTime   @default(now())
+  measuredBy    String?
+  lengthCm      Decimal    @db.Decimal(12, 2)
+  beginWidthCm  Decimal?
+  middleWidthCm Decimal?
+  endWidthCm   Decimal?
+  minWidthCm    Decimal?
+  maxWidthCm    Decimal?
+  avgWidthCm    Decimal?
+  usableWidthCm Decimal    @db.Decimal(8, 2) // the operator-confirmed usable width for this session
+  note          String?
+  createdOn     DateTime   @default(now())
+  createdBy     String?
+
+  tenant  Tenant       @relation(fields: [tenantId], references: [id])
+  roll    FabricRoll   @relation(fields: [rollId], references: [id], onDelete: Cascade)
+  measuredByUser User? @relation("RollMeasurer", fields: [measuredBy], references: [id])
+
+  @@index([tenantId])
+  @@index([rollId])
+}
+
+/// Logical spans along the roll: AVAILABLE / RESERVED / CONSUMED / DEFECT /
+/// WASTE / REMNANT. Positions are absolute cm from roll start. The service
+/// layer keeps a clean, non-overlapping partition; every material-moving
+/// operation rewrites the affected span(s) transactionally.
+model FabricSegment {
+  id        String      @id @default(uuid())
+  tenantId  String
+  rollId    String
+  startCm   Decimal     @db.Decimal(12, 2)
+  endCm     Decimal     @db.Decimal(12, 2)
+  type      SegmentType @default(AVAILABLE)
+  refType   String? // e.g. 'lay-plan' | 'marker' | 'defect'
+  refId     String?
+  label     String?
+  createdOn DateTime    @default(now())
+
+  tenant Tenant     @relation(fields: [tenantId], references: [id])
+  roll   FabricRoll @relation(fields: [rollId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, rollId, startCm])
+}
+
+/// Physical defect found during inspection. `startCm..endCm` locates it along
+/// the roll; `affectedWidthCm` spans the width it ruins (0 = full width).
+model FabricDefect {
+  id              String         @id @default(uuid())
+  tenantId        String
+  rollId          String
+  code            String? // D-1, D-2 …
+  defectType      DefectType     @default(OTHER)
+  startCm         Decimal        @db.Decimal(12, 2)
+  endCm           Decimal        @db.Decimal(12, 2)
+  affectedWidthCm Decimal        @default(0) @db.Decimal(8, 2)
+  severity        DefectSeverity @default(MINOR)
+  status          DefectStatus   @default(OPEN)
+  notes           String?
+  photoUrl        String?
+  createdOn       DateTime       @default(now())
+  createdBy       String?
+  updatedOn       DateTime       @updatedAt
+  updatedBy       String?
+  deletedOn       DateTime?
+  deletedBy       String?
+  isDeleted       Boolean        @default(false)
+  version         Int            @default(0)
+
+  tenant Tenant     @relation(fields: [tenantId], references: [id])
+  roll   FabricRoll @relation(fields: [rollId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, rollId, startCm])
+}
+
+/// Append-only material ledger. `quantityCm` is signed: negative = removed
+/// from the roll, positive = returned. Remaining length = original − Σ|out|
+/// and is NEVER silently overwritten — corrections are new rows.
+model RollTransaction {
+  id          String              @id @default(uuid())
+  tenantId    String
+  rollId      String
+  type        RollTransactionType
+  quantityCm  Decimal             @db.Decimal(12, 2) // signed
+  balanceAfterCm Decimal          @db.Decimal(12, 2) // roll length after this entry
+  refType     String? // 'lay-plan' | 'cut-operation' | 'defect' | 'adjustment'
+  refId       String?
+  refLabel    String? // human-readable, e.g. "Lay #LP-2026-0001"
+  note        String?
+  createdOn   DateTime            @default(now())
+  createdBy   String?
+
+  tenant Tenant     @relation(fields: [tenantId], references: [id])
+  roll   FabricRoll @relation(fields: [rollId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, rollId, createdOn])
+}
+
+/// A reusable style-level pattern set (a “style folder” of pattern pieces).
+/// Markers copy pieces from a set; the copies keep their real dimensions.
+model PatternSet {
+  id         String   @id @default(uuid())
+  tenantId   String
+  code       String // e.g. SHIRT-001
+  name       String
+  styleRef   String?
+  notes      String?
+  createdOn  DateTime @default(now())
+  createdBy  String?
+  updatedOn  DateTime @updatedAt
+  updatedBy  String?
+  deletedOn  DateTime?
+  deletedBy  String?
+  isDeleted  Boolean  @default(false)
+  version    Int      @default(0)
+
+  tenant Tenant         @relation(fields: [tenantId], references: [id])
+  pieces PatternPiece[]
+  markers Marker[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+}
+
+/// A pattern piece master (per size). Dimensions are real-world, base unit cm.
+model PatternPiece {
+  id             String        @id @default(uuid())
+  tenantId       String
+  patternSetId   String
+  name           String // Front, Back, Sleeve…
+  size           String? // M, L, XL…
+  widthCm        Decimal       @db.Decimal(8, 2)
+  heightCm       Decimal       @db.Decimal(8, 2)
+  quantity       Int           @default(1) // pieces per garment
+  grainDirection GrainDirection @default(VERTICAL)
+  rotationAllowed Boolean      @default(true)
+  mirrored       Boolean       @default(false)
+  seamAllowanceCm Decimal      @default(0) @db.Decimal(6, 2)
+  notes          String?
+  createdOn      DateTime      @default(now())
+  createdBy      String?
+  updatedOn      DateTime      @updatedAt
+  updatedBy      String?
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id])
+  patternSet PatternSet  @relation(fields: [patternSetId], references: [id], onDelete: Cascade)
+  markerPieces MarkerPiece[]
+
+  @@index([tenantId, patternSetId])
+}
+
+/// The marker: a cutting layout of pattern pieces across the usable width.
+/// Efficiency / length are planning values, recomputed from piece geometry.
+model Marker {
+  id              String       @id @default(uuid())
+  tenantId        String
+  number          String // MK-2026-0001
+  version         Int          @default(1) // revision counter (see MarkerRevision)
+  status          MarkerStatus @default(DRAFT)
+  patternSetId    String?
+  styleRef        String?
+  fabricType      String?
+  color           String?
+  sizeRatioJson   Json // { "M": 2, "L": 2, "XL": 1 }
+  // marker geometry — base unit cm
+  widthCm         Decimal      @db.Decimal(8, 2) // usable width the marker was designed for
+  lengthCm        Decimal      @default(0) @db.Decimal(12, 2) // physical marker length (pieces + end allowance)
+  endAllowanceCm  Decimal      @default(0) @db.Decimal(6, 2)
+  // planning results (server-computed; never client-supplied)
+  patternAreaCm2  Decimal      @default(0) @db.Decimal(14, 2)
+  markerAreaCm2   Decimal      @default(0) @db.Decimal(14, 2)
+  efficiencyPct   Decimal      @default(0) @db.Decimal(6, 2)
+  garmentsPerMarker Int        @default(0)
+  notes           String?
+  createdOn       DateTime     @default(now())
+  createdBy       String?
+  updatedOn       DateTime     @updatedAt
+  updatedBy       String?
+  deletedOn       DateTime?
+  deletedBy       String?
+  isDeleted       Boolean      @default(false)
+
+  tenant      Tenant          @relation(fields: [tenantId], references: [id])
+  patternSet  PatternSet?     @relation(fields: [patternSetId], references: [id])
+  pieces      MarkerPiece[]
+  revisions   MarkerRevision[]
+  layPlans    LayPlan[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId])
+  @@index([tenantId, status])
+}
+
+/// A pattern piece placed inside a marker. x/y/rotation are real geometry in
+/// cm relative to the marker origin (top-left). `size` + name identify the
+/// garment part; quantity > 1 stamps identical copies.
+model MarkerPiece {
+  id             String         @id @default(uuid())
+  tenantId       String
+  markerId       String
+  patternPieceId String?
+  name           String
+  size           String?
+  xCm            Decimal        @db.Decimal(10, 2)
+  yCm            Decimal        @db.Decimal(10, 2)
+  widthCm        Decimal        @db.Decimal(8, 2)
+  heightCm       Decimal        @db.Decimal(8, 2)
+  rotationDeg    Decimal        @default(0) @db.Decimal(6, 2)
+  grainDirection GrainDirection @default(VERTICAL)
+  mirrored       Boolean        @default(false)
+  color          String? // UI hint (e.g. color by size)
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  marker       Marker        @relation(fields: [markerId], references: [id], onDelete: Cascade)
+  patternPiece PatternPiece? @relation(fields: [patternPieceId], references: [id])
+
+  @@index([tenantId, markerId])
+}
+
+/// Immutable snapshot of a marker state at finalize/rename time — planning
+/// history is never overwritten. See the description of Marker for the
+/// live row's own version counter.
+model MarkerRevision {
+  id             String       @id @default(uuid())
+  tenantId       String
+  markerId       String
+  revisionNumber Int
+  snapshot       Json // full marker + pieces snapshot
+  note           String?
+  createdOn      DateTime     @default(now())
+  createdBy      String?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  marker Marker @relation(fields: [markerId], references: [id], onDelete: Cascade)
+
+  @@unique([markerId, revisionNumber])
+  @@index([tenantId])
+}
+
+/// Cut order: required production quantity per size for a style/color.
+model CutOrder {
+  id             String          @id @default(uuid())
+  tenantId       String
+  number         String // CO-2026-0001
+  status         CutOrderStatus  @default(DRAFT)
+  styleRef       String?
+  color          String?
+  fabricType     String?
+  requiredJson   Json // { "M": 200, "L": 300, "XL": 200 }
+  notes          String?
+  approvedOn     DateTime?
+  approvedBy     String?
+  createdOn      DateTime        @default(now())
+  createdBy      String?
+  updatedOn      DateTime        @updatedAt
+  updatedBy      String?
+  deletedOn      DateTime?
+  deletedBy      String?
+  isDeleted      Boolean         @default(false)
+  version        Int             @default(0)
+
+  tenant    Tenant       @relation(fields: [tenantId], references: [id])
+  layPlans  LayPlan[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId])
+  @@index([tenantId, status])
+}
+
+/// One lay: a marker × ply combination, optionally bound to a cut order and a
+/// fabric roll. Planned quantities are the contract; actuals live on CutOperation.
+model LayPlan {
+  id             String        @id @default(uuid())
+  tenantId       String
+  number         String // LP-2026-0001
+  status         LayPlanStatus @default(PLANNED)
+  cutOrderId     String?
+  markerId       String
+  rollId         String
+  ply            Int
+  garmentsPerMarker Int        @default(0) // snapshot of marker size ratio at plan time
+  markerLengthCm Decimal       @db.Decimal(12, 2) // snapshot
+  markerStartCm  Decimal       @default(0) @db.Decimal(12, 2) // where on the roll this lay is placed
+  // planned roll-up (from marker + ply) — planning view
+  theoreticalPieces Int        @default(0)
+  fabricPlannedCm  Decimal     @default(0) @db.Decimal(12, 2) // = markerLengthCm (single ply)
+  notes          String?
+  createdOn      DateTime      @default(now())
+  createdBy      String?
+  updatedOn      DateTime      @updatedAt
+  updatedBy      String?
+
+  tenant     Tenant        @relation(fields: [tenantId], references: [id])
+  cutOrder   CutOrder?     @relation(fields: [cutOrderId], references: [id])
+  marker     Marker        @relation(fields: [markerId], references: [id])
+  roll       FabricRoll    @relation(fields: [rollId], references: [id])
+  cutOperations CutOperation[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([rollId])
+}
+
+/// Actual cutting result for a lay. Recording completion writes the CONSUMED
+/// transaction + CONSUMED segment to the roll ledger and bumps remaining
+/// fabric. Actuals are recorded once (completed operations are locked).
+model CutOperation {
+  id              String            @id @default(uuid())
+  tenantId        String
+  number          String // CT-2026-0001
+  layPlanId       String
+  rollId          String
+  performedOn     DateTime          @default(now())
+  status          CutOperationStatus @default(PENDING)
+  // actual results (never copied from planning)
+  actualLengthCm  Decimal?          @db.Decimal(12, 2) // fabric actually consumed from the roll
+  actualPieces    Int? // garment sets actually cut
+  rejectedPieces  Int? // rejects during/after cutting
+  wasteLengthCm   Decimal?          @db.Decimal(12, 2) // end loss / miscut unusable fabric
+  markerStartCm   Decimal?          @db.Decimal(12, 2)
+  markerEndCm     Decimal?          @db.Decimal(12, 2)
+  notes           String?
+  createdOn       DateTime          @default(now())
+  createdBy       String?
+  updatedOn       DateTime          @updatedAt
+  updatedBy       String?
+
+  tenant  Tenant     @relation(fields: [tenantId], references: [id])
+  layPlan LayPlan    @relation(fields: [layPlanId], references: [id], onDelete: Cascade)
+  roll    FabricRoll @relation(fields: [rollId], references: [id])
+
+  @@unique([tenantId, number])
+  @@index([tenantId])
+  @@index([layPlanId])
+}
+
+// ── Phase 3 — Cutting Room enums ──────────────────────────────────────────
+
+enum LengthUnit {
+  MM
+  CM
+  METERS
+  INCHES
+  FEET
+}
+
+enum FabricRollStatus {
+  DRAFT
+  IN_STOCK
+  IN_INSPECTION
+  RESERVED
+  IN_CUTTING
+  CONSUMED
+  CLOSED
+}
+
+enum SegmentType {
+  AVAILABLE
+  RESERVED
+  CONSUMED
+  DEFECT
+  WASTE
+  REMNANT
+}
+
+enum RollTransactionType {
+  MEASURED
+  RESERVED
+  RELEASED
+  CONSUMED
+  DEFECT_MARKED
+  WASTE
+  REMNANT
+  ADJUSTMENT
+}
+
+enum DefectType {
+  HOLE
+  STAIN
+  SLUB
+  MISSING_WEFT
+  MISSING_WARP
+  COLOR_FAULT
+  PRINT_DEFECT
+  SELVEDGE_DEFECT
+  OIL_MARK
+  OTHER
+}
+
+enum DefectSeverity {
+  MINOR
+  MAJOR
+  CRITICAL
+}
+
+enum DefectStatus {
+  OPEN
+  PATCHED
+  REJECTED
+}
+
+enum GrainDirection {
+  VERTICAL
+  HORIZONTAL
+  ANY
+}
+
+enum MarkerStatus {
+  DRAFT
+  FINALIZED
+  ARCHIVED
+}
+
+enum CutOrderStatus {
+  DRAFT
+  APPROVED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum LayPlanStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum CutOperationStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
 }
 
 // ── Enums ──────────────────────────────────────────────────────────────────

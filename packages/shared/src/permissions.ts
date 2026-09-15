@@ -116,6 +116,24 @@ export const PERMISSIONS: readonly PermissionDef[] = [
 
   // Procurement — Stock (minimal Phase 2 hand-off; full Inventory in Phase 3)
   { code: 'stock:read', module: 'Procurement', name: 'View Stock', description: 'View stock transactions and balances' },
+
+  // Cutting Room — fabric rolls
+  { code: 'roll:read', module: 'Cutting', name: 'View Fabric Rolls', description: 'View fabric rolls, measurements and inspection' },
+  { code: 'roll:create', module: 'Cutting', name: 'Create Fabric Rolls', description: 'Create fabric rolls and record measurements' },
+  { code: 'roll:update', module: 'Cutting', name: 'Update Fabric Rolls', description: 'Update rolls, measurements and defects' },
+  { code: 'roll:delete', module: 'Cutting', name: 'Archive Fabric Rolls', description: 'Archive fabric rolls' },
+
+  // Cutting Room — markers
+  { code: 'marker:read', module: 'Cutting', name: 'View Markers', description: 'View markers and pattern layouts' },
+  { code: 'marker:create', module: 'Cutting', name: 'Create Markers', description: 'Create and duplicate markers' },
+  { code: 'marker:update', module: 'Cutting', name: 'Update Markers', description: 'Edit markers, pattern pieces and finalize' },
+  { code: 'marker:delete', module: 'Cutting', name: 'Archive Markers', description: 'Archive markers' },
+
+  // Cutting Room — cut orders, lays and cutting
+  { code: 'cutorder:read', module: 'Cutting', name: 'View Cut Orders', description: 'View cut orders, lay plans and output' },
+  { code: 'cutorder:create', module: 'Cutting', name: 'Create Cut Orders', description: 'Create cut orders and lay plans' },
+  { code: 'cutorder:update', module: 'Cutting', name: 'Update Cut Orders', description: 'Update cut orders, lays and record cutting' },
+  { code: 'cutorder:delete', module: 'Cutting', name: 'Archive Cut Orders', description: 'Archive cut orders' },
 ];
 
 export const PERMISSION_MODULES: readonly string[] = Array.from(

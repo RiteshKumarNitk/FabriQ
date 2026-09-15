@@ -4,6 +4,7 @@ import {
   Factory,
   FileText,
   GitBranch,
+  Layers,
   LayoutDashboard,
   LineChart,
   ListTree,
@@ -12,6 +13,7 @@ import {
   PackageOpen,
   Palette,
   ScanSearch,
+  Scissors,
   Settings2,
   Shield,
   Truck,
@@ -506,6 +508,14 @@ export const SIDEBAR_GROUPS: SidebarGroup[] = [
       { label: 'Fabric Inspections', href: '/procurement/inspections', icon: ScanSearch, permission: 'inspection:read' },
       { label: 'Warehouse Receipts', href: '/procurement/warehouse-receipts', icon: Warehouse, permission: 'warehousereceipt:read' },
       { label: 'Stock', href: '/procurement/stock', icon: Package, permission: 'stock:read' },
+    ],
+  },
+  {
+    label: 'Cutting Room',
+    items: [
+      { label: 'Fabric Rolls', href: '/cutting/rolls', icon: Layers, permission: 'roll:read' },
+      { label: 'Markers', href: '/cutting/markers', icon: Scissors, permission: 'marker:read' },
+      { label: 'Cut Orders', href: '/cutting/cut-orders', icon: Package, permission: 'cutorder:read' },
     ],
   },
   {

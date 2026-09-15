@@ -152,3 +152,104 @@ export enum Unit {
   DOZENS = 'DOZENS',
   LITERS = 'LITERS',
 }
+
+// ── Phase 3 — Cutting Room ───────────────────────────────────────────────
+
+/** Physical length units supported by the cutting planner. */
+export enum LengthUnit {
+  MM = 'MM',
+  CM = 'CM',
+  METERS = 'METERS',
+  INCHES = 'INCHES',
+  FEET = 'FEET',
+}
+
+export enum FabricRollStatus {
+  DRAFT = 'DRAFT',
+  IN_STOCK = 'IN_STOCK',
+  IN_INSPECTION = 'IN_INSPECTION',
+  RESERVED = 'RESERVED',
+  IN_CUTTING = 'IN_CUTTING',
+  CONSUMED = 'CONSUMED',
+  CLOSED = 'CLOSED',
+}
+
+/** Logical segments of a roll along its length. */
+export enum SegmentType {
+  AVAILABLE = 'AVAILABLE',
+  RESERVED = 'RESERVED',
+  CONSUMED = 'CONSUMED',
+  DEFECT = 'DEFECT',
+  WASTE = 'WASTE',
+  REMNANT = 'REMNANT',
+}
+
+export enum RollTransactionType {
+  MEASURED = 'MEASURED',
+  RESERVED = 'RESERVED',
+  RELEASED = 'RELEASED',
+  CONSUMED = 'CONSUMED',
+  DEFECT_MARKED = 'DEFECT_MARKED',
+  WASTE = 'WASTE',
+  REMNANT = 'REMNANT',
+  ADJUSTMENT = 'ADJUSTMENT',
+}
+
+export enum DefectType {
+  HOLE = 'HOLE',
+  STAIN = 'STAIN',
+  SLUB = 'SLUB',
+  MISSING_WEFT = 'MISSING_WEFT',
+  MISSING_WARP = 'MISSING_WARP',
+  COLOR_FAULT = 'COLOR_FAULT',
+  PRINT_DEFECT = 'PRINT_DEFECT',
+  SELVEDGE_DEFECT = 'SELVEDGE_DEFECT',
+  OIL_MARK = 'OIL_MARK',
+  OTHER = 'OTHER',
+}
+
+export enum DefectSeverity {
+  MINOR = 'MINOR',
+  MAJOR = 'MAJOR',
+  CRITICAL = 'CRITICAL',
+}
+
+export enum DefectStatus {
+  OPEN = 'OPEN',
+  PATCHED = 'PATCHED',
+  REJECTED = 'REJECTED',
+}
+
+export enum GrainDirection {
+  VERTICAL = 'VERTICAL',
+  HORIZONTAL = 'HORIZONTAL',
+  ANY = 'ANY',
+}
+
+export enum MarkerStatus {
+  DRAFT = 'DRAFT',
+  FINALIZED = 'FINALIZED',
+  ARCHIVED = 'ARCHIVED',
+}
+
+export enum CutOrderStatus {
+  DRAFT = 'DRAFT',
+  APPROVED = 'APPROVED',
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED',
+}
+
+export enum LayPlanStatus {
+  PLANNED = 'PLANNED',
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED',
+}
+
+export enum CutOperationStatus {
+  PENDING = 'PENDING',
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED',
+}

@@ -42,6 +42,20 @@ const TENANT_SCOPED_MODELS = new Set<string>([
   'FabricInspectionDefect',
   'WarehouseReceipt',
   'StockTransaction',
+  // Phase 3 — Cutting Room
+  'FabricRoll',
+  'FabricMeasurement',
+  'FabricSegment',
+  'FabricDefect',
+  'RollTransaction',
+  'PatternSet',
+  'PatternPiece',
+  'Marker',
+  'MarkerPiece',
+  'MarkerRevision',
+  'CutOrder',
+  'LayPlan',
+  'CutOperation',
 ]);
 
 export function createBaseClient(): PrismaClient {

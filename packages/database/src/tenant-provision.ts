@@ -28,6 +28,10 @@ export const TENANT_ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     'inspection:read', 'inspection:create', 'inspection:update', 'inspection:delete',
     'warehousereceipt:read', 'warehousereceipt:create', 'warehousereceipt:update', 'warehousereceipt:delete',
     'stock:read',
+    // Cutting
+    'roll:read', 'roll:create', 'roll:update', 'roll:delete',
+    'marker:read', 'marker:create', 'marker:update', 'marker:delete',
+    'cutorder:read', 'cutorder:create', 'cutorder:update', 'cutorder:delete',
   ],
   SUPERVISOR: [
     'dashboard:read',
@@ -46,6 +50,10 @@ export const TENANT_ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     'inspection:read', 'inspection:create', 'inspection:update',
     'warehousereceipt:read',
     'stock:read',
+    // Cutting
+    'roll:read', 'roll:create', 'roll:update',
+    'marker:read', 'marker:create', 'marker:update',
+    'cutorder:read', 'cutorder:create', 'cutorder:update',
   ],
   OPERATOR: [
     'dashboard:read',
@@ -54,6 +62,8 @@ export const TENANT_ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     // Procurement
     'supplier:read', 'requisition:read', 'purchaseorder:read', 'grn:read',
     'inspection:read', 'warehousereceipt:read', 'stock:read',
+    // Cutting (read-only)
+    'roll:read', 'marker:read', 'cutorder:read',
   ],
   VIEWER: [
     'dashboard:read', 'factory:read', 'warehouse:read', 'orgunit:read',
@@ -61,6 +71,8 @@ export const TENANT_ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     // Procurement
     'supplier:read', 'requisition:read', 'purchaseorder:read', 'grn:read',
     'inspection:read', 'warehousereceipt:read', 'stock:read',
+    // Cutting (read-only)
+    'roll:read', 'marker:read', 'cutorder:read',
   ],
 };
 

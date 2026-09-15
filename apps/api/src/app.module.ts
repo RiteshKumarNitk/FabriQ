@@ -33,6 +33,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { ProcurementModule } from './modules/procurement/procurement.module';
 import { StockModule } from './modules/stock/stock.module';
 import { PlatformModule } from './modules/platform/platform.module';
+import { CuttingModule } from './modules/cutting/cutting.module';
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { PlatformModule } from './modules/platform/platform.module';
     ProcurementModule,
     StockModule,
     PlatformModule,
+    CuttingModule,
   ],
   controllers: [AppController],
   providers: [
