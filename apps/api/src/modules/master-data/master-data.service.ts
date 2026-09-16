@@ -95,6 +95,9 @@ export class MasterDataService extends CrudService {
     if (!tenantId) {
       throw new BadRequestException('Options require a tenant context');
     }
+    if (!categoryCode) {
+      throw new BadRequestException('Query parameter "category" is required');
+    }
     const category = await this.prisma.client.masterDataCategory.findUnique({
       where: { tenantId_code: { tenantId, code: categoryCode } },
     });
