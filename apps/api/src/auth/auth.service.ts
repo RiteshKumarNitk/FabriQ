@@ -48,26 +48,27 @@ export class AuthService {
 
     const tokens = await this.issueTokens(user.id, user.email, user.tenantId, user.companyId, user.factoryId, user.isPlatformAdmin, roles, permissions, meta);
 
-    await this.prisma.raw.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
-    });
-
-    await this.prisma.raw.auditLog.create({
-      data: {
-        tenantId: user.tenantId,
-        userId: user.id,
-        action: AuditAction.LOGIN,
-        module: 'auth',
-        entityType: 'user',
-        entityId: user.id,
-        method: 'POST',
-        path: '/api/v1/auth/login',
-        statusCode: 200,
-        ip: meta.ip,
-        userAgent: meta.userAgent,
-      },
-    });
+    await Promise.all([
+      this.prisma.raw.user.update({
+        where: { id: user.id },
+        data: { lastLoginAt: new Date() },
+      }),
+      this.prisma.raw.auditLog.create({
+        data: {
+          tenantId: user.tenantId,
+          userId: user.id,
+          action: AuditAction.LOGIN,
+          module: 'auth',
+          entityType: 'user',
+          entityId: user.id,
+          method: 'POST',
+          path: '/api/v1/auth/login',
+          statusCode: 200,
+          ip: meta.ip,
+          userAgent: meta.userAgent,
+        },
+      }),
+    ]);
 
     return { ...tokens, user: this.publicUser(user, roles, permissions) };
   }

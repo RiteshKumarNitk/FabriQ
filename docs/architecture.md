@@ -15,9 +15,9 @@
 
 ## 2. Monorepo
 
-npm workspaces + Turborepo. Packages compile to `dist/` and are consumed through `exports` maps
+pnpm workspaces + Turborepo. Packages compile to `dist/` and are consumed through `exports` maps
 (`types` → `.d.ts`, `default` → `.js`); apps never import package source. Turborepo orders builds
-(`dependsOn: ["^build"]`), so `npm run build` compiles `shared` → `database` → apps.
+(`dependsOn: ["^build"]`), so `pnpm run build` compiles `shared` → `database` → apps.
 
 | Package | Responsibility | Consumers |
 |---|---|---|

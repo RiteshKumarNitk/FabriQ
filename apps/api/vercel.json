@@ -1,4 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm run build -w @fabriq/shared && npm run build -w @fabriq/database && npm run build"
+  "buildCommand": "pnpm --filter @fabriq/shared build && pnpm --filter @fabriq/database build && pnpm build"
 }

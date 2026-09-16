@@ -88,20 +88,27 @@ export function EntityListPage({ config, editId }: EntityListPageProps) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const next: Record<string, Map<string, string>> = {};
-      for (const field of config.fields) {
-        if (field.type !== 'ref' || !field.refPath || !config.columns.includes(field.name)) continue;
-        try {
-          const res = await http.get<any>(`${field.refPath}?pageSize=200`);
-          const rows = Array.isArray(res) ? res : (res?.items ?? []);
-          const map = new Map<string, string>();
-          for (const row of rows) {
-            map.set(row.id, row.code ? `${row.code} · ${row.name ?? ''}`.trim() : row.name);
+      const refFields = config.fields.filter(
+        (field) => field.type === 'ref' && field.refPath && config.columns.includes(field.name),
+      );
+      const entries = await Promise.all(
+        refFields.map(async (field) => {
+          try {
+            const res = await http.get<any>(`${field.refPath}?pageSize=200`);
+            const rows = Array.isArray(res) ? res : (res?.items ?? []);
+            const map = new Map<string, string>();
+            for (const row of rows) {
+              map.set(row.id, row.code ? `${row.code} · ${row.name ?? ''}`.trim() : row.name);
+            }
+            return [field.name, map] as const;
+          } catch {
+            return null;
           }
-          next[field.name] = map;
-        } catch {
-          /* ignore */
-        }
+        }),
+      );
+      const next: Record<string, Map<string, string>> = {};
+      for (const entry of entries) {
+        if (entry) next[entry[0]] = entry[1];
       }
       if (!cancelled) setRefOptions(next);
     })();

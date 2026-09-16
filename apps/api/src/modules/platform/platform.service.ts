@@ -33,6 +33,14 @@ export class PlatformService {
         }),
       ]);
 
+    const [auditEvents, tenantGrowth, userGrowth, companyGrowth, loginsPerDay] = await Promise.all([
+      this.prisma.raw.auditLog.count({}),
+      this.growthSeries('tenant', tenants.map((t) => t.createdOn)),
+      this.growthSeries('user'),
+      this.growthSeries('company'),
+      this.loginSeries(),
+    ]);
+
     const tenantTotals = tenants.length;
     const byStatus: Record<string, number> = {};
     const byPlan: Record<string, number> = {};
@@ -80,13 +88,13 @@ export class PlatformService {
         recent: recentAudit,
         loginsToday: loginsToday,
         failedLogins: 0, // placeholder — failed logins are not yet audited
-        auditEvents: await this.prisma.raw.auditLog.count({}),
+        auditEvents,
       },
       charts: {
-        tenantGrowth: await this.growthSeries('tenant', tenants.map((t) => t.createdOn)),
-        userGrowth: await this.growthSeries('user'),
-        companyGrowth: await this.growthSeries('company'),
-        loginsPerDay: await this.loginSeries(),
+        tenantGrowth,
+        userGrowth,
+        companyGrowth,
+        loginsPerDay,
       },
     };
   }

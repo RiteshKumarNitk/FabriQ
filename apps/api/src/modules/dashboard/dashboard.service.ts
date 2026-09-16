@@ -48,18 +48,19 @@ export class DashboardService {
       }),
     ]);
 
-    const recentAudit = await this.prisma.raw.auditLog.findMany({
-      where: { tenantId },
-      orderBy: { createdOn: 'desc' },
-      take: 8,
-      include: { user: { select: { firstName: true, lastName: true } } },
-    });
-
-    const recentNotifications = await this.prisma.raw.notification.findMany({
-      where: { userId: ctx.userId },
-      orderBy: { createdOn: 'desc' },
-      take: 5,
-    });
+    const [recentAudit, recentNotifications] = await Promise.all([
+      this.prisma.raw.auditLog.findMany({
+        where: { tenantId },
+        orderBy: { createdOn: 'desc' },
+        take: 8,
+        include: { user: { select: { firstName: true, lastName: true } } },
+      }),
+      this.prisma.raw.notification.findMany({
+        where: { userId: ctx.userId },
+        orderBy: { createdOn: 'desc' },
+        take: 5,
+      }),
+    ]);
 
     return {
       counts: {

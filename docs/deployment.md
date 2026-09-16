@@ -57,7 +57,7 @@ each one is its own Vercel project:
 4. **Build Command:** replace with:
 
    ```
-   npm run build -w @fabriq/shared && npm run build
+   pnpm --filter @fabriq/shared build && pnpm build
    ```
 
    (`@fabriq/shared` ships as gitignored `dist/`, so a fresh clone must build it
@@ -122,7 +122,7 @@ Login: `owner@acme.test / Demo@123` (tenant admin) or
   instead of looping, but fix the env).
 - **Build fails on `@fabriq/shared`** → the build command is wrong. API should
   use `apps/api/vercel.json` (default); web should be
-  `npm run build -w @fabriq/shared && npm run build`.
+  `pnpm --filter @fabriq/shared build && pnpm build`.
 - **DB errors on the API** → `DATABASE_URL` is wrong/unset; check the Neon
   connection string and that `sslmode=require` is present.
 
@@ -136,7 +136,7 @@ Login: `owner@acme.test / Demo@123` (tenant admin) or
   command `node dist/main.js` (the package.json `start` script).
 - **Build is self-contained:** `apps/api/vercel.json` sets the build command to
   build the workspace packages first:
-  `npm run build -w @fabriq/shared && npm run build -w @fabriq/database && npm run build`
+  `pnpm --filter @fabriq/shared build && pnpm --filter @fabriq/database build && pnpm build`
   (the API imports `@fabriq/shared` and `@fabriq/database` from their gitignored
   `dist/` folders, so they must be built before the API's `tsc` run).
 - **Environment variables (all required unless noted):**

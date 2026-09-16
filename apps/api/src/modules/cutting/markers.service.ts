@@ -400,11 +400,17 @@ export class MarkersService {
     candidates: Array<{ markerId: string; lays?: number }>;
   }) {
     if (dto.ply <= 0) throw new BadRequestException('Ply must be a positive number');
+    const uniqueMarkerIds = [...new Set(dto.candidates.map((c) => c.markerId))];
+    const markerRows = await this.prisma.client.marker.findMany({
+      where: { id: { in: uniqueMarkerIds }, isDeleted: false },
+    });
+    const markersById = new Map(markerRows.map((m) => [m.id, m as unknown as MarkerRow]));
     const results = [];
     let totalFabricCm = 0;
     let totalOutput = 0;
     for (const c of dto.candidates) {
-      const marker = await this.getMarkerRow(c.markerId);
+      const marker = markersById.get(c.markerId);
+      if (!marker) throw new NotFoundException('Marker not found');
       const gpm = garmentsPerMarker(marker.sizeRatioJson as Record<string, number>);
       const lays = c.lays ?? 0;
       const output = lays * gpm * dto.ply;

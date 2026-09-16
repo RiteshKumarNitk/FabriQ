@@ -3,22 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "description": "FabriQ — Enterprise multi-tenant garment manufacturing management platform",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
   "scripts": {
     "dev": "turbo dev",
-    "dev:api": "npm run dev -w @fabriq/api",
-    "dev:web": "npm run dev -w @fabriq/web",
+    "dev:api": "pnpm --filter @fabriq/api dev",
+    "dev:web": "pnpm --filter @fabriq/web dev",
     "build": "turbo build",
     "typecheck": "turbo typecheck",
     "clean": "turbo clean",
-    "db:generate": "npm run db:generate -w @fabriq/database",
-    "db:migrate": "npm run db:migrate -w @fabriq/database",
-    "db:push": "npm run db:push -w @fabriq/database",
-    "db:seed": "npm run db:seed -w @fabriq/database",
-    "db:studio": "npm run db:studio -w @fabriq/database",
+    "db:generate": "pnpm --filter @fabriq/database db:generate",
+    "db:migrate": "pnpm --filter @fabriq/database db:migrate",
+    "db:push": "pnpm --filter @fabriq/database db:push",
+    "db:seed": "pnpm --filter @fabriq/database db:seed",
+    "db:studio": "pnpm --filter @fabriq/database db:studio",
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down"
   },
@@ -29,7 +25,7 @@
   "engines": {
     "node": ">=20.0.0"
   },
-  "packageManager": "npm@10.9.8",
+  "packageManager": "pnpm@10.34.5+sha512.a4ee05f2f73658255bd6a89859c065a45c28a57daefae2c893a168ee2b73168c37b91e83e57ea67654ad03f03031746430e8bce38e362e042605fb8abc80192e",
   "dependencies": {
     "next": "^14.2.35"
   }

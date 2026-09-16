@@ -46,25 +46,25 @@ Prerequisites: **Node 20+**, **Docker** (for Postgres/Redis/MinIO — or an exis
 
 ```bash
 # 1. Install dependencies
-npm install
+pnpm install
 
 # 2. Start infrastructure (PostgreSQL, Redis)
-npm run infra:up
+pnpm run infra:up
 
 # 3. Create the database schema
-npm run db:push          # or: npm run db:migrate (prisma migrate dev)
+pnpm run db:push          # or: pnpm run db:migrate (prisma migrate dev)
 
 # 4. Seed the platform (permissions, roles, demo tenant, sample data)
-npm run db:seed
+pnpm run db:seed
 
 # 5. Run both apps (API on :3001, Web on :3000)
-npm run dev
+pnpm run dev
 ```
 
 Open:
 - Web app → http://localhost:3000
 - Swagger/OpenAPI → http://localhost:3001/api/docs
-- Prisma Studio → `npm run db:studio`
+- Prisma Studio → `pnpm run db:studio`
 
 ### Demo credentials (seeded)
 
@@ -83,12 +83,12 @@ Open:
 
 | Command | Purpose |
 |---|---|
-| `npm run dev` | Run API + Web (Turborepo watch) |
-| `npm run build` | Build all packages/apps |
-| `npm run typecheck` | Typecheck everything |
-| `npm run db:generate` | Regenerate Prisma client |
-| `npm run db:seed` | Seed the platform |
-| `npm run db:studio` | Browse the database |
+| `pnpm run dev` | Run API + Web (Turborepo watch) |
+| `pnpm run build` | Build all packages/apps |
+| `pnpm run typecheck` | Typecheck everything |
+| `pnpm run db:generate` | Regenerate Prisma client |
+| `pnpm run db:seed` | Seed the platform |
+| `pnpm run db:studio` | Browse the database |
 
 ## Phase 1 — Platform Foundation (delivered)
 
