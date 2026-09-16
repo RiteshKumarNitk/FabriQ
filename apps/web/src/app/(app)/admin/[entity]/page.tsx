@@ -2,9 +2,12 @@ import { notFound } from 'next/navigation';
 import { ENTITY_INDEX } from '@/lib/entities';
 import { EntityListPage } from '@/components/entity/entity-list-page';
 
-export function generateStaticParams() {
-  return [];
-}
+// This is tenant-scoped, permission-gated admin data — never statically
+// optimized. An empty generateStaticParams() previously made Next.js build
+// this route with no server-rendered fallback, so any real entity value
+// 500'd in production (next dev never exercises static optimization, which
+// is why this only showed up on Vercel).
+export const dynamic = 'force-dynamic';
 
 export default function EntityListRoute({
   params,
