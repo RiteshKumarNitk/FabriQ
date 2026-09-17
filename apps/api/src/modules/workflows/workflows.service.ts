@@ -19,6 +19,7 @@ export class WorkflowsService {
   async listDefinitions(dto: ListQueryDto) {
     const args = buildListArgs(dto, {
       searchFields: ['code', 'name', 'entityType'],
+      model: 'WorkflowDefinition',
       where: { isDeleted: false },
       defaultSortBy: 'createdOn',
     });
@@ -160,7 +161,7 @@ export class WorkflowsService {
       { assigneeUserId: ctx?.userId ?? '__none__' },
       ...(ctx?.roles?.length ? ctx.roles.map((role) => ({ assigneeRoleCode: role })) : []),
     ];
-    const args = buildListArgs(dto, { where, defaultSortBy: 'createdOn', defaultSortOrder: 'desc' });
+    const args = buildListArgs(dto, { model: 'WorkflowTask', where, defaultSortBy: 'createdOn', defaultSortOrder: 'desc' });
     const [items, total] = await Promise.all([
       this.prisma.raw.workflowTask.findMany({
         where: args.where,

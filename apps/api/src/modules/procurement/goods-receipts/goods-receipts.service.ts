@@ -18,6 +18,7 @@ export class GoodsReceiptsService {
   async list(dto: ListQueryDto) {
     const args = buildListArgs(dto, {
       searchFields: ['number', 'invoiceNumber', 'vehicleNumber'],
+      model: 'GoodsReceiptNote',
       where: { isDeleted: false },
       defaultSortBy: 'createdOn',
     });

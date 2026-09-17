@@ -40,12 +40,14 @@ interface CutOrderDetail {
     theoreticalPieces: number;
     marker: { id: string; number: string; efficiencyPct: number; styleRef?: string | null };
     roll: { id: string; number: string };
+    remnant?: { id: string; number: string } | null;
     cutOperations: Array<{ id: string; number: string; status: string; actualPieces?: number | null; actualLengthCm?: number | null; wasteLengthCm?: number | null; performedOn?: string | null }>;
   }>;
 }
 
 interface RollOption { id: string; number: string; fabricType?: string | null; color?: string | null; usableWidthCm: number; remainingLengthCm: number }
 interface MarkerOption { id: string; number: string; styleRef?: string | null; widthCm: number; lengthCm: number; garmentsPerMarker: number; efficiencyPct: number; status: string }
+interface RemnantOption { id: string; number: string; lengthCm: number; usableWidthCm: number; sourceRollId: string; status: string }
 
 export default function CutOrderDetailPage() {
   const params = useParams<{ id: string }>();
@@ -56,11 +58,13 @@ export default function CutOrderDetailPage() {
   // lay planning form
   const [markerId, setMarkerId] = useState('');
   const [rollId, setRollId] = useState('');
+  const [remnantId, setRemnantId] = useState('');
   const [ply, setPly] = useState('40');
   const [allowDefect, setAllowDefect] = useState(false);
   const [creatingLay, setCreatingLay] = useState(false);
   const [rollOptions, setRollOptions] = useState<RollOption[]>([]);
   const [markerOptions, setMarkerOptions] = useState<MarkerOption[]>([]);
+  const [remnantOptions, setRemnantOptions] = useState<RemnantOption[]>([]);
 
   // cutting form
   const [cutLay, setCutLay] = useState<{ id: string; number: string } | null>(null);
@@ -89,14 +93,16 @@ export default function CutOrderDetailPage() {
   useEffect(() => {
     void (async () => {
       try {
-        const [rolls, markers] = await Promise.all([
+        const [rolls, markers, remnants] = await Promise.all([
           http.get<RollOption[] | { items: RollOption[] }>('/fabric-rolls?pageSize=100&status=IN_STOCK'),
           http.get<MarkerOption[] | { items: MarkerOption[] }>('/markers?pageSize=100&status=FINALIZED'),
+          http.get<RemnantOption[] | { items: RemnantOption[] }>('/remnants?pageSize=100&status=AVAILABLE'),
         ]);
         const unwrap = <T,>(v: T[] | { items: T[] } | null | undefined): T[] =>
           Array.isArray(v) ? v : (v?.items ?? []);
         setRollOptions(unwrap(rolls));
         setMarkerOptions(unwrap(markers));
+        setRemnantOptions(unwrap(remnants));
       } catch {
         /* pickers stay empty; the API will still validate */
       }
@@ -125,11 +131,12 @@ export default function CutOrderDetailPage() {
         cutOrderId: params.id,
         markerId,
         rollId,
+        remnantId: remnantId || undefined,
         ply: Number(ply),
         allowDefectOverlap: allowDefect || undefined,
       });
       toast.success('Lay planned — fabric reserved on the roll');
-      setMarkerId(''); setRollId(''); setPly('40'); setAllowDefect(false);
+      setMarkerId(''); setRollId(''); setRemnantId(''); setPly('40'); setAllowDefect(false);
       await load();
     } catch (err) {
       toast.error((err as Error).message ?? 'Failed to create lay plan');
@@ -257,6 +264,11 @@ export default function CutOrderDetailPage() {
                   <span className="text-xs text-muted-foreground">
                     {fmtLength(lay.markerLengthCm, lu)} · {lay.ply} ply · {lay.garmentsPerMarker}/layer
                   </span>
+                  {lay.remnant ? (
+                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800" title="Cut from a remnant">
+                      ⌗ {lay.remnant.number}
+                    </span>
+                  ) : null}
                   <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium">
                     {lay.status.replace(/_/g, ' ')}
                   </span>
@@ -303,7 +315,7 @@ export default function CutOrderDetailPage() {
       <Card>
         <CardContent className="space-y-3 p-4">
           <h3 className="flex items-center gap-2 text-sm font-semibold"><Plus className="h-4 w-4" /> Plan a lay</h3>
-          <form onSubmit={createLay} className="grid gap-3 md:grid-cols-4">
+          <form onSubmit={createLay} className="grid gap-3 md:grid-cols-5">
             <div className="space-y-1.5">
               <Label>Finalized marker</Label>
               <Select value={markerId} onChange={(e) => setMarkerId(e.target.value)} required>
@@ -324,6 +336,21 @@ export default function CutOrderDetailPage() {
                     {r.number} · {(r.remainingLengthCm / 100).toFixed(1)} m · usable {fromBase(r.usableWidthCm, LengthUnit.INCHES).toFixed(1)}"
                   </option>
                 ))}
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>
+                From remnant <span className="font-normal text-muted-foreground">(optional)</span>
+              </Label>
+              <Select value={remnantId} onChange={(e) => setRemnantId(e.target.value)}>
+                <option value="">Main roll fabric</option>
+                {remnantOptions
+                  .filter((rm) => rm.sourceRollId === rollId)
+                  .map((rm) => (
+                    <option key={rm.id} value={rm.id}>
+                      {rm.number} · {(rm.lengthCm / 100).toFixed(2)} m · usable {fromBase(rm.usableWidthCm, LengthUnit.INCHES).toFixed(1)}"
+                    </option>
+                  ))}
               </Select>
             </div>
             <div className="space-y-1.5">

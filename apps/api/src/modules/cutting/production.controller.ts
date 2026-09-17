@@ -91,6 +91,7 @@ export class ProductionController {
   listLayPlans(
     @Query('cutOrderId') cutOrderId?: string,
     @Query('rollId') rollId?: string,
+    @Query('remnantId') remnantId?: string,
     @Query('status') status?: string,
     @Query('search') search?: string,
     @Query('sortBy') sortBy?: string,
@@ -101,6 +102,7 @@ export class ProductionController {
     return this.production.listLayPlans({
       cutOrderId,
       rollId,
+      remnantId,
       status,
       search,
       sortBy,
@@ -129,6 +131,7 @@ export class ProductionController {
     dto: {
       markerId: string;
       rollId: string;
+      remnantId?: string;
       ply: number;
       cutOrderId?: string;
       markerStartCm?: number;

@@ -19,6 +19,7 @@ export class AuditService {
     if (dto.userId) where['userId'] = dto.userId;
 
     const args = buildListArgs(dto, {
+      model: 'AuditLog',
       where,
       defaultSortBy: 'createdOn',
       defaultSortOrder: 'desc',

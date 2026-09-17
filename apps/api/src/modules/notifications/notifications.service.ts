@@ -15,7 +15,7 @@ export class NotificationsService {
     if (!ctx) throw new BadRequestException('Requires authentication');
     const where: Record<string, unknown> = { userId: ctx.userId };
     if (isRead !== undefined) where['isRead'] = isRead;
-    const args = buildListArgs(dto, { where, defaultSortBy: 'createdOn', defaultSortOrder: 'desc' });
+    const args = buildListArgs(dto, { model: 'Notification', where, defaultSortBy: 'createdOn', defaultSortOrder: 'desc' });
     const [items, total] = await Promise.all([
       this.prisma.raw.notification.findMany({ where: args.where, orderBy: args.orderBy, skip: args.skip, take: args.take }),
       this.prisma.raw.notification.count({ where: args.where }),

@@ -254,9 +254,18 @@ export enum CutOperationStatus {
   CANCELLED = 'CANCELLED',
 }
 
-/** Lifecycle of a physically separated fabric remnant. */
+/**
+ * Lifecycle of a physically separated fabric remnant.
+ *
+ * A remnant is a fabric source exactly like a roll: planning a lay on it
+ * moves it to PLANNED (soft hold), recording the cut moves it to RESERVED,
+ * and the piece is cut off when the source span is detached. A remnant that
+ * is cut in ONE lay consumes the whole piece (detached → CONSUMED on the
+ * parent); a PARTIAL remnant stays attached and keeps its leftover length.
+ */
 export enum RemnantStatus {
   AVAILABLE = 'AVAILABLE',
+  PLANNED = 'PLANNED',
   RESERVED = 'RESERVED',
   CONSUMED = 'CONSUMED',
   ARCHIVED = 'ARCHIVED',

@@ -7,6 +7,7 @@ import {
   CutOrderStatus,
   CutOperationStatus,
   LayPlanStatus,
+  RemnantStatus,
   RollTransactionType,
   SegmentType,
   round4,
@@ -214,6 +215,7 @@ export class ProductionService {
   async listLayPlans(query: {
     cutOrderId?: string;
     rollId?: string;
+    remnantId?: string;
     status?: string;
     search?: string;
     filters?: string;
@@ -227,6 +229,7 @@ export class ProductionService {
     const where: Record<string, unknown> = {};
     if (query.cutOrderId) where['cutOrderId'] = query.cutOrderId;
     if (query.rollId) where['rollId'] = query.rollId;
+    if (query.remnantId) where['remnantId'] = query.remnantId;
     if (query.status) where['status'] = query.status;
     if (query.search) {
       where['OR'] = ['number', 'notes'].map((f) => ({
@@ -247,6 +250,7 @@ export class ProductionService {
         include: {
           marker: { select: { id: true, number: true, styleRef: true, efficiencyPct: true, garmentsPerMarker: true } },
           roll: { select: { id: true, number: true, fabricType: true, color: true } },
+          remnant: { select: { id: true, number: true, lengthCm: true, usableWidthCm: true, status: true } },
           cutOrder: { select: { id: true, number: true } },
           cutOperations: { orderBy: { createdOn: 'asc' } },
         },
@@ -262,6 +266,7 @@ export class ProductionService {
       include: {
         marker: { include: { pieces: true } },
         roll: true,
+        remnant: { select: { id: true, number: true, lengthCm: true, sourceStartCm: true, sourceEndCm: true, status: true } },
         cutOrder: { select: { id: true, number: true } },
         cutOperations: { orderBy: { createdOn: 'asc' } },
       },
@@ -294,12 +299,20 @@ export class ProductionService {
 
   /**
    * Create a lay plan: reserves marker length inside one AVAILABLE segment of
-   * the roll. Validates fit, defect crossing (explicit acknowledgment
-   * required) and ply > 0. Physical roll length is NEVER multiplied by ply.
+   * the roll — or, when `remnantId` is given, on a REMNANT as the fabric
+   * source. Validates fit, defect crossing (explicit acknowledgment
+   * required) and ply > 0. Physical fabric length is NEVER multiplied by ply.
+   *
+   * Remnant lays consume the piece from its END (open-end cutting): the lay
+   * is placed at `lengthCm − markerLength` on the PARENT roll's coordinate
+   * axis, so markerStartCm stays comparable across sources. The remnant's
+   * length is reduced only when the cut is recorded (or on cancel of a
+   * whole-piece lay — see cancelLayPlan/completeCutOperation).
    */
   async createLayPlan(dto: {
     markerId: string;
     rollId: string;
+    remnantId?: string;
     ply: number;
     cutOrderId?: string;
     markerStartCm?: number;
@@ -323,6 +336,31 @@ export class ProductionService {
       throw new BadRequestException(
         `Marker width (${Number(marker.widthCm)} cm) exceeds the roll's usable width (${Number(roll.usableWidthCm)} cm)`,
       );
+    }
+    // Optional REMNANT source: the parent roll supplies identity + usable
+    // width (the remnant inherits both at creation), the remnant supplies
+    // the remaining fabric. Explicit refusals for states that must never be
+    // cut (per the remnant rules: never mix AVAILABLE / reserved / waste).
+    let remnant: any = null;
+    if (dto.remnantId) {
+      remnant = await this.prisma.client.remnant.findFirst({
+        where: { id: dto.remnantId, isDeleted: false },
+      });
+      if (!remnant) throw new NotFoundException('Remnant not found');
+      if (remnant.sourceRollId !== roll.id) {
+        throw new BadRequestException('The remnant does not belong to this roll');
+      }
+      if (remnant.status === 'CONSUMED') {
+        throw new BadRequestException('Remnant is already fully consumed');
+      }
+      if (remnant.status === 'ARCHIVED') {
+        throw new BadRequestException('Remnant is archived and cannot be cut');
+      }
+      if (Number(remnant.usableWidthCm) + 1e-6 < Number(marker.widthCm)) {
+        throw new BadRequestException(
+          `Marker width (${Number(marker.widthCm)} cm) exceeds the remnant's usable width (${Number(remnant.usableWidthCm)} cm)`,
+        );
+      }
     }
     if (dto.cutOrderId) {
       const order = await this.prisma.client.cutOrder.findFirst({ where: { id: dto.cutOrderId, isDeleted: false } });
@@ -348,11 +386,45 @@ export class ProductionService {
         // Serialize all ledger writers on this roll (lays, cuts, cancels).
         await tx.$queryRaw`SELECT id FROM "FabricRoll" WHERE id = ${roll.id} FOR UPDATE`;
 
+        // Remnant source: read the piece fresh under the lock and re-validate
+        // its state — a parallel lay or cut may have consumed it meanwhile.
+        let remnantLenCm: number | null = null;
+        let remnantStartCm = 0;
+        if (remnant) {
+          const piece = await tx.remnant.findFirst({ where: { id: remnant.id, isDeleted: false } });
+          if (!piece) throw new NotFoundException('Remnant not found');
+          if (piece.status === RemnantStatus.CONSUMED || piece.status === RemnantStatus.ARCHIVED) {
+            throw new BadRequestException('Remnant is no longer available for cutting');
+          }
+          if (Number(piece.lengthCm) < markerLengthCm - 1e-6) {
+            throw new BadRequestException(
+              `Remnant length (${Number(piece.lengthCm)} cm) no longer fits the marker (${markerLengthCm} cm)`,
+            );
+          }
+          // One active lay per remnant: lays consume from the piece's front,
+          // so two PLANNED lays would claim the same fabric. Complete or
+          // cancel the current lay before planning the next.
+          const activeOnPiece = await tx.layPlan.count({
+            where: { remnantId: remnant.id, status: { in: ['PLANNED', 'IN_PROGRESS'] } },
+          });
+          if (activeOnPiece > 0) {
+            throw new BadRequestException('Remnant already has an active lay — complete or cancel it before planning another');
+          }
+          remnantLenCm = Number(piece.lengthCm);
+          remnantStartCm = Number(piece.sourceStartCm);
+        }
+
         // Span: explicit placement, or first-fit inside a committed AVAILABLE
         // segment (segments are rebuilt under the same lock, so they are
         // consistent here).
         let startCm: number;
-        if (dto.markerStartCm != null) {
+        if (remnantLenCm != null) {
+          // Open-end cutting: a remnant lay consumes the piece from its START
+          // (front) — the lay occupies [start, start + markerLength) and the
+          // leftover [start + markerLength, end] stays on the piece. Parent
+          // coordinates keep lays comparable across fabric sources.
+          startCm = remnantStartCm;
+        } else if (dto.markerStartCm != null) {
           startCm = round4(dto.markerStartCm);
         } else {
           const slots = await tx.fabricSegment.findMany({
@@ -366,49 +438,57 @@ export class ProductionService {
           startCm = Number(fit.startCm);
         }
         const endCm = round4(startCm + markerLengthCm);
-        if (endCm > Number(roll.originalLengthCm) + 1e-6) {
+        if (remnantLenCm == null && endCm > Number(roll.originalLengthCm) + 1e-6) {
           throw new BadRequestException('Marker extends past the end of the roll');
         }
 
-        // Authoritative overlap check against committed lays (segments are
-        // DERIVED from these rows — this is the ground truth).
-        const active = await tx.layPlan.findMany({
-          where: { rollId: roll.id, status: { not: LayPlanStatus.CANCELLED } },
-          select: { markerStartCm: true, markerLengthCm: true },
-        });
-        const clash = active.some(
-          (l: any) =>
-            Number(l.markerStartCm) < endCm - 1e-6 && startCm < Number(l.markerStartCm) + Number(l.markerLengthCm) - 1e-6,
-        );
-        // The span must also sit inside a single AVAILABLE segment.
-        const containing = await tx.fabricSegment.findFirst({
-          where: {
-            rollId: roll.id,
-            type: SegmentType.AVAILABLE,
-            startCm: { lte: startCm + 1e-6 },
-            endCm: { gte: endCm - 1e-6 },
-          },
-        });
-        if (clash || !containing) {
-          throw new BadRequestException('The marker span crosses a reserved, consumed or defective section of the roll');
-        }
+        if (remnantLenCm != null) {
+          // Remnant lays need no segment/overlap/defect checks: the piece was
+          // carved out of defect-free AVAILABLE fabric at detach time, lays
+          // serialize on the parent-roll lock, and every lay consumes from
+          // the piece's current start — so two lays can never collide (the
+          // fresh status + length re-read above is the authoritative gate).
+        } else {
+          // Authoritative overlap check against committed lays (segments are
+          // DERIVED from these rows — this is the ground truth).
+          const active = await tx.layPlan.findMany({
+            where: { rollId: roll.id, status: { not: LayPlanStatus.CANCELLED } },
+            select: { markerStartCm: true, markerLengthCm: true },
+          });
+          const clash = active.some(
+            (l: any) =>
+              Number(l.markerStartCm) < endCm - 1e-6 && startCm < Number(l.markerStartCm) + Number(l.markerLengthCm) - 1e-6,
+          );
+          // The span must also sit inside a single AVAILABLE segment.
+          const containing = await tx.fabricSegment.findFirst({
+            where: {
+              rollId: roll.id,
+              type: SegmentType.AVAILABLE,
+              startCm: { lte: startCm + 1e-6 },
+              endCm: { gte: endCm - 1e-6 },
+            },
+          });
+          if (clash || !containing) {
+            throw new BadRequestException('The marker span crosses a reserved, consumed or defective section of the roll');
+          }
 
-        // Defect-awareness: warn explicitly (defects are already carved out
-        // of AVAILABLE segments — defense in depth for adjacent defects).
-        if (!dto.allowDefectOverlap) {
-          const defects = await tx.fabricDefect.findMany({
-            where: { rollId: roll.id, isDeleted: false },
-            select: { id: true, startCm: true, endCm: true },
-          });
-          const issues = validatePlacement({
-            pieces: [],
-            usableWidthCm: Number(roll.usableWidthCm),
-            markerLengthCm,
-            defects: defects.map((d: any) => ({ id: d.id, startCm: Number(d.startCm), endCm: Number(d.endCm) })),
-            markerStartCm: startCm,
-          });
-          if (issues.some((i: any) => i.code === 'CROSSES_DEFECT')) {
-            throw new BadRequestException('Marker placement crosses a defect area — confirm with allowDefectOverlap=true or move the marker');
+          // Defect-awareness: warn explicitly (defects are already carved out
+          // of AVAILABLE segments — defense in depth for adjacent defects).
+          if (!dto.allowDefectOverlap) {
+            const defects = await tx.fabricDefect.findMany({
+              where: { rollId: roll.id, isDeleted: false },
+              select: { id: true, startCm: true, endCm: true },
+            });
+            const issues = validatePlacement({
+              pieces: [],
+              usableWidthCm: Number(roll.usableWidthCm),
+              markerLengthCm,
+              defects: defects.map((d: any) => ({ id: d.id, startCm: Number(d.startCm), endCm: Number(d.endCm) })),
+              markerStartCm: startCm,
+            });
+            if (issues.some((i: any) => i.code === 'CROSSES_DEFECT')) {
+              throw new BadRequestException('Marker placement crosses a defect area — confirm with allowDefectOverlap=true or move the marker');
+            }
           }
         }
 
@@ -421,6 +501,7 @@ export class ProductionService {
             cutOrderId: dto.cutOrderId,
             markerId: marker.id,
             rollId: roll.id,
+            remnantId: remnant?.id ?? null,
             ply: dto.ply,
             garmentsPerMarker: gpm,
             markerLengthCm,
@@ -432,29 +513,45 @@ export class ProductionService {
             updatedBy: ctx?.userId ?? null,
           },
         });
-        // Reserved ledger entry (soft hold — remaining fabric is untouched).
-        await tx.rollTransaction.create({
-          data: {
-            tenantId: this.tenantId(),
-            rollId: roll.id,
-            type: RollTransactionType.RESERVED,
-            quantityCm: -markerLengthCm,
-            balanceAfterCm: Number(freshRoll?.remainingLengthCm ?? 0),
-            refType: 'lay-plan',
-            refId: created.id,
-            refLabel: `Lay ${created.number}`,
-            createdBy: ctx?.userId ?? null,
-          },
-        });
+        if (!remnant) {
+          // Reserved ledger entry (soft hold — remaining fabric is untouched).
+          // A remnant lay holds the PIECE instead (status flip below) — the
+          // parent roll's ledger must stay append-only around the detach.
+          await tx.rollTransaction.create({
+            data: {
+              tenantId: this.tenantId(),
+              rollId: roll.id,
+              type: RollTransactionType.RESERVED,
+              quantityCm: -markerLengthCm,
+              balanceAfterCm: Number(freshRoll?.remainingLengthCm ?? 0),
+              refType: 'lay-plan',
+              refId: created.id,
+              refLabel: `Lay ${created.number}`,
+              createdBy: ctx?.userId ?? null,
+            },
+          });
+        }
         await tx.fabricRoll.update({
           where: { id: roll.id },
           data: {
-            status: 'IN_CUTTING',
+            ...(remnant ? {} : { status: 'IN_CUTTING' }),
             cutQtyPlanned: { increment: theoretical },
             updatedBy: ctx?.userId ?? null,
             version: { increment: 1 },
           },
         });
+        if (remnant) {
+          // Soft hold on the piece — released on cancel, upgraded to a
+          // shrink + AVAILABLE/CONSUMED when the cut is recorded.
+          await tx.remnant.update({
+            where: { id: remnant.id },
+            data: {
+              status: RemnantStatus.PLANNED,
+              updatedBy: ctx?.userId ?? null,
+              version: { increment: 1 },
+            },
+          });
+        }
         await this.rolls.rebuildSegments(tx as any, roll.id);
         return created;
       },
@@ -489,29 +586,48 @@ export class ProductionService {
           data: { status: LayPlanStatus.CANCELLED, updatedBy: ctx?.userId ?? null },
         });
         const roll = await tx.fabricRoll.findUnique({ where: { id: lay.rollId } });
-        await tx.rollTransaction.create({
-          data: {
-            tenantId: this.tenantId(),
-            rollId: lay.rollId,
-            type: RollTransactionType.RELEASED,
-            quantityCm: Number(lay.markerLengthCm),
-            balanceAfterCm: Number(roll?.remainingLengthCm ?? 0),
-            refType: 'lay-plan',
-            refId: lay.id,
-            refLabel: `Released lay ${lay.number}`,
-            createdBy: ctx?.userId ?? null,
-          },
-        });
+        if (!lay.remnantId) {
+          // Roll-sourced lay: release the soft hold on the roll's ledger.
+          await tx.rollTransaction.create({
+            data: {
+              tenantId: this.tenantId(),
+              rollId: lay.rollId,
+              type: RollTransactionType.RELEASED,
+              quantityCm: Number(lay.markerLengthCm),
+              balanceAfterCm: Number(roll?.remainingLengthCm ?? 0),
+              refType: 'lay-plan',
+              refId: lay.id,
+              refLabel: `Released lay ${lay.number}`,
+              createdBy: ctx?.userId ?? null,
+            },
+          });
+        }
         if (roll) {
           const plannedAfter = Number(roll.cutQtyPlanned) - Number(lay.theoreticalPieces);
           await tx.fabricRoll.update({
             where: { id: roll.id },
             data: {
               cutQtyPlanned: { decrement: Number(lay.theoreticalPieces) },
-              ...(plannedAfter <= 0 && Number(roll.remainingLengthCm) > 0 ? { status: 'RESERVED' } : {}),
+              ...(plannedAfter <= 0 && Number(roll.remainingLengthCm) > 0 && !lay.remnantId ? { status: 'RESERVED' } : {}),
               version: { increment: 1 },
             },
           });
+        }
+        if (lay.remnantId) {
+          // Remnant-sourced lay: release the soft hold on the piece. With no
+          // active lays left on it, its remaining fabric is free again.
+          const piece = await tx.remnant.findFirst({ where: { id: lay.remnantId, isDeleted: false } });
+          if (piece) {
+            const activeLays = await tx.layPlan.count({
+              where: { remnantId: lay.remnantId, status: { in: ['PLANNED', 'IN_PROGRESS'] } },
+            });
+            if (activeLays === 0) {
+              await tx.remnant.update({
+                where: { id: piece.id },
+                data: { status: RemnantStatus.AVAILABLE, updatedBy: ctx?.userId ?? null, version: { increment: 1 } },
+              });
+            }
+          }
         }
         await this.rolls.rebuildSegments(tx as any, lay.rollId);
       },
@@ -536,7 +652,7 @@ export class ProductionService {
         take: pageSize,
         include: {
           layPlan: {
-            select: { id: true, number: true, ply: true, marker: { select: { number: true, styleRef: true } }, roll: { select: { number: true } } },
+            select: { id: true, number: true, ply: true, marker: { select: { number: true, styleRef: true } }, roll: { select: { number: true } }, remnant: { select: { number: true } } },
           },
         },
       }),
@@ -589,9 +705,29 @@ export class ProductionService {
         const roll = await tx.fabricRoll.findUnique({ where: { id: lay.rollId } });
         if (!roll) throw new NotFoundException('Fabric roll not found');
 
+        // Remnant source: read the piece fresh under the lock — a parallel
+        // cancel may have released it, a parallel cut may have shrunk it.
+        let piece: any = null;
+        let remnantLenCm = 0;
+        if (lay.remnantId) {
+          piece = await tx.remnant.findFirst({ where: { id: lay.remnantId, isDeleted: false } });
+          if (!piece) throw new NotFoundException('Remnant not found');
+          if (piece.status === RemnantStatus.CONSUMED || piece.status === RemnantStatus.ARCHIVED) {
+            throw new BadRequestException('Remnant is no longer available for cutting');
+          }
+          remnantLenCm = Number(piece.lengthCm);
+        }
+
         const consumedTotal = round4(dto.actualLengthCm + waste);
         const remaining = Number(roll.remainingLengthCm);
-        if (consumedTotal > remaining + 1e-6) {
+        if (piece) {
+          // Consumption is bounded by the PIECE, not the parent roll.
+          if (consumedTotal > remnantLenCm + 1e-6) {
+            throw new BadRequestException(
+              `Consumption (${consumedTotal} cm) exceeds the remnant's length (${remnantLenCm} cm)`,
+            );
+          }
+        } else if (consumedTotal > remaining + 1e-6) {
           throw new BadRequestException(
             `Consumption (${consumedTotal} cm) exceeds the roll's remaining fabric (${remaining} cm)`,
           );
@@ -619,43 +755,112 @@ export class ProductionService {
         });
         // Fresh, locked balance — never a stale read, never clamped.
         const balance = round4(remaining - consumedTotal);
-        await tx.rollTransaction.create({
-          data: {
-            tenantId: tenant,
-            rollId: lay.rollId,
-            type: RollTransactionType.CONSUMED,
-            quantityCm: -round4(dto.actualLengthCm),
-            balanceAfterCm: balance,
-            refType: 'cut-operation',
-            refId: op.id,
-            refLabel: `Cut ${op.number} — lay ${lay.number}`,
-            createdBy: ctx?.userId ?? null,
-          },
-        });
-        if (waste > 0) {
+        if (!piece) {
           await tx.rollTransaction.create({
             data: {
               tenantId: tenant,
               rollId: lay.rollId,
-              type: RollTransactionType.WASTE,
-              quantityCm: -round4(waste),
+              type: RollTransactionType.CONSUMED,
+              quantityCm: -round4(dto.actualLengthCm),
               balanceAfterCm: balance,
               refType: 'cut-operation',
               refId: op.id,
-              refLabel: `Cut waste — lay ${lay.number}`,
+              refLabel: `Cut ${op.number} — lay ${lay.number}`,
               createdBy: ctx?.userId ?? null,
             },
           });
+          if (waste > 0) {
+            await tx.rollTransaction.create({
+              data: {
+                tenantId: tenant,
+                rollId: lay.rollId,
+                type: RollTransactionType.WASTE,
+                quantityCm: -round4(waste),
+                balanceAfterCm: balance,
+                refType: 'cut-operation',
+                refId: op.id,
+                refLabel: `Cut waste — lay ${lay.number}`,
+                createdBy: ctx?.userId ?? null,
+              },
+            });
+          }
         }
         await tx.fabricRoll.update({
           where: { id: lay.rollId },
           data: {
-            remainingLengthCm: balance,
+            ...(piece ? {} : { remainingLengthCm: balance }),
             cutQtyActual: { increment: dto.actualPieces },
-            status: balance <= 1e-6 ? 'CONSUMED' : undefined,
+            ...(piece ? {} : { status: balance <= 1e-6 ? 'CONSUMED' : undefined }),
             version: { increment: 1 },
           },
         });
+        if (piece) {
+          // Remnant consumption: the PIECE shrinks from its start (the lay
+          // span IS the consumed fabric). Fully consumed pieces detach →
+          // the parent roll ledger records the REMNANT + CONSUMED rows so
+          // the parent history stays traceable; partially consumed pieces
+          // keep the leftover AVAILABLE for the next lay.
+          const leftover = round4(remnantLenCm - consumedTotal);
+          if (leftover <= 1e-6) {
+            await tx.rollTransaction.create({
+              data: {
+                tenantId: tenant,
+                rollId: lay.rollId,
+                type: RollTransactionType.REMNANT,
+                quantityCm: -remnantLenCm,
+                balanceAfterCm: remaining,
+                refType: 'remnant',
+                refId: piece.id,
+                refLabel: `Remnant ${piece.number} fully consumed by lay ${lay.number}`,
+                createdBy: ctx?.userId ?? null,
+              },
+            });
+            await tx.rollTransaction.create({
+              data: {
+                tenantId: tenant,
+                rollId: lay.rollId,
+                type: RollTransactionType.CONSUMED,
+                quantityCm: -round4(dto.actualLengthCm),
+                balanceAfterCm: round4(remaining - remnantLenCm),
+                refType: 'cut-operation',
+                refId: op.id,
+                refLabel: `Cut ${op.number} — lay ${lay.number} (remnant)`,
+                createdBy: ctx?.userId ?? null,
+              },
+            });
+            if (waste > 0) {
+              await tx.rollTransaction.create({
+                data: {
+                  tenantId: tenant,
+                  rollId: lay.rollId,
+                  type: RollTransactionType.WASTE,
+                  quantityCm: -round4(waste),
+                  balanceAfterCm: round4(remaining - remnantLenCm),
+                  refType: 'cut-operation',
+                  refId: op.id,
+                  refLabel: `Cut waste — lay ${lay.number} (remnant)`,
+                  createdBy: ctx?.userId ?? null,
+                },
+              });
+            }
+          }
+          await tx.remnant.update({
+            where: { id: piece.id },
+            data: {
+              ...(leftover <= 1e-6
+                ? { sourceStartCm: Number(piece.sourceEndCm), lengthCm: 0, status: RemnantStatus.CONSUMED }
+                : {
+                    // Leftover fabric is free again (RESERVED remains a
+                    // manual inventory hold set from the remnants page).
+                    sourceStartCm: round4(Number(piece.sourceStartCm) + consumedTotal),
+                    lengthCm: leftover,
+                    status: RemnantStatus.AVAILABLE,
+                  }),
+              updatedBy: ctx?.userId ?? null,
+              version: { increment: 1 },
+            },
+          });
+        }
         await tx.layPlan.update({
           where: { id: lay.id },
           data: { status: LayPlanStatus.COMPLETED, updatedBy: ctx?.userId ?? null },

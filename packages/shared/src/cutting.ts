@@ -242,6 +242,7 @@ export interface RollSummaryResult {
 export function summarizeRoll(input: RollSummaryInput): RollSummaryResult {
   let consumed = 0;
   let reserved = 0;
+  let released = 0;
   let waste = 0;
   let remnant = 0;
   let adjustmentDelta = 0;
@@ -253,6 +254,11 @@ export function summarizeRoll(input: RollSummaryInput): RollSummaryResult {
         break;
       case 'RESERVED':
         reserved += q;
+        break;
+      case 'RELEASED':
+        // A cancelled lay releases its reservation — available must net
+        // these out, otherwise the summary understates usable fabric.
+        released += q;
         break;
       case 'WASTE':
         waste += q;
@@ -277,11 +283,11 @@ export function summarizeRoll(input: RollSummaryInput): RollSummaryResult {
   return {
     originalLengthCm: round4(input.originalLengthCm),
     consumedCm: round4(consumed),
-    reservedCm: round4(reserved),
+    reservedCm: round4(Math.max(0, reserved - released)),
     defectCm: round4(input.defectLengthCm ?? 0),
     wasteCm: round4(waste),
     remnantCm: round4(remnant),
-    availableCm: Math.max(0, round4(remaining - reserved)),
+    availableCm: Math.max(0, round4(remaining - Math.max(0, reserved - released))),
     remainingCm: remaining,
   };
 }
@@ -462,20 +468,24 @@ export function buildSegmentPartition(input: {
     const s = sorted[i];
     const e = sorted[i + 1];
     if (e - s <= 1e-6) continue;
-    const remnant = [...remnantSpans.entries()].find(
-      ([, span]) => span.start <= s + 1e-6 && span.end >= e - 1e-6,
-    );
-    if (remnant) {
-      const [remnantId, span] = remnant;
-      push(s, e, SegmentType.REMNANT, 'remnant', remnantId, `Remnant ${span.number ?? ''}`.trim());
-      continue;
-    }
+    // Priority: LAY > REMNANT > DEFECT > AVAILABLE. A planned/active lay
+    // placed inside a (shrinking) remnant span must still render as the
+    // lay's own cell — the piece's AVAILABLE leftover is what remains
+    // outside lay spans, so the timeline shows reservations truthfully.
     const lay = [...laySpans.entries()].find(
       ([, span]) => span.start <= s + 1e-6 && span.end >= e - 1e-6,
     );
     if (lay) {
       const [layId] = lay;
       push(s, e, laySegmentTypes.get(layId) ?? SegmentType.RESERVED, 'lay-plan', layId, `Lay ${layId.slice(0, 8)}`);
+      continue;
+    }
+    const remnant = [...remnantSpans.entries()].find(
+      ([, span]) => span.start <= s + 1e-6 && span.end >= e - 1e-6,
+    );
+    if (remnant) {
+      const [remnantId, span] = remnant;
+      push(s, e, SegmentType.REMNANT, 'remnant', remnantId, `Remnant ${span.number ?? ''}`.trim());
       continue;
     }
     const defect = input.defects.find(

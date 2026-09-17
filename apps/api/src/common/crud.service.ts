@@ -65,6 +65,10 @@ export abstract class CrudService {
   async list(dto: ListQueryDto, opts: ListOptions = {}): Promise<{ items: any[]; meta: ReturnType<typeof buildPaginationMeta> }> {
     const args = buildListArgs(dto, {
       ...opts,
+      // Schema-derived sort whitelist: a sortBy that is not a column of this
+      // model is rejected (400) instead of reaching Prisma and throwing a
+      // validation error (500).
+      model: this.model,
       where: { ...this.activeWhere(), ...(opts.where ?? {}) },
     });
     const select = this.omitSelect();

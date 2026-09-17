@@ -25,6 +25,7 @@ export class RequisitionsService {
   async list(dto: ListQueryDto) {
     const args = buildListArgs(dto, {
       searchFields: ['number', 'remarks'],
+      model: 'PurchaseRequisition',
       where: { isDeleted: false },
       defaultSortBy: 'createdOn',
     });

@@ -550,8 +550,10 @@ export class FabricRollsService {
       async (tx: any) => {
         // Serialize against lay/cut ledger writers.
         await tx.$queryRaw`SELECT id FROM "FabricRoll" WHERE id = ${rollId} FOR UPDATE`;
+        // Remnant-sourced lays hold piece fabric, not the parent's remaining
+        // spans — they don't block converting the leftover into a remnant.
         const activeLays = await tx.layPlan.count({
-          where: { rollId, status: { in: ['PLANNED', 'IN_PROGRESS'] } },
+          where: { rollId, status: { in: ['PLANNED', 'IN_PROGRESS'] }, remnantId: null },
         });
         if (activeLays > 0) {
           throw new BadRequestException('Roll has active lay plans — cancel or complete them before closing');

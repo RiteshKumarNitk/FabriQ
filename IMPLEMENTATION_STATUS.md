@@ -53,7 +53,7 @@ FabriQ is a multi-tenant garment-manufacturing SaaS: platform → tenants → co
 | Cutting (orders/lays/actuals) | ✅ Complete | Cut orders (+approve/fulfillment roll-up), lay plans (reserved span, first-fit, defect check, cancel→release, **list search + whitelisted sort**), cut operations (CONSUMED + WASTE ledger, row-locked) | `modules/cutting/production.*` |
 | Fabrics (master) | ✅ Complete | CRUD + archive: code/name/type/composition/GSM/default width + unit/description/active; `FabricRoll.fabricId` link (rolls keep free-text identity fields for compatibility). Admin registry entry | `modules/fabrics/*` |
 | Pattern library | ✅ Complete | `/pattern-sets` CRUD with pieces, `POST /:id/revisions` (v2 = NEW row deep-copying pieces, `supersedesId` chain), `POST /:id/apply-to-marker` (first-fit placement of set pieces) | `modules/patterns/*` |
-| Remnants | ✅ Complete | Close-roll → remnant (`POST /fabric-rolls/:id/close-roll`), inventory list/get/patch, REMNANT ledger rows + REMNANT segment spans | `modules/cutting/remnants.*` |
+| Remnants | ✅ Complete | Close-roll → remnant (`POST /fabric-rolls/:id/close-roll`), inventory list/get/patch, REMNANT ledger rows + REMNANT segment spans, **remnant-sourced lays/cuts** (see §4) | `modules/cutting/remnants.*` |
 | Dashboard | ✅ Complete | Tenant KPI summary + platform summary | `modules/dashboard`, `modules/platform` |
 | Platform billing (subscriptions/licenses) | ❌ Not implemented | Placeholder pages only | `app/(app)/platform/[section]/page.tsx` |
 
@@ -78,13 +78,14 @@ FabriQ is a multi-tenant garment-manufacturing SaaS: platform → tenants → co
 | Size ratio | ✅ Complete | `sizeRatioJson` editor in marker UI; server recomputes. |
 | Garments per marker | ✅ Complete | Σ positive size-ratio quantities (shared `garmentsPerMarker()`), recomputed on every save server-side. |
 | Marker efficiency | ✅ Complete | `efficiencyPct = patternArea / markerArea × 100` (cap 100), server-authoritative on save/finalize; same formula live in editor. |
-| Lay | ✅ Complete | `LayPlan`: reserves marker length inside one AVAILABLE segment (`FOR UPDATE` lock, overlap + containing-segment + defect checks), first-fit or explicit `markerStartCm`, cancel → RELEASED. |
+| Lay | ✅ Complete | `LayPlan`: reserves marker length inside one AVAILABLE segment (`FOR UPDATE` lock, overlap + containing-segment + defect checks), first-fit or explicit `markerStartCm`, cancel → RELEASED — **or on a remnant piece** (`remnantId`, open-end consumption, no segment checks needed since the piece is defect-free by construction) |
 | Ply | ✅ Complete | Ply multiplies **output** only (`theoreticalPieces = garmentsPerMarker × ply`), never fabric length — enforced in shared `calculateLay`. |
 | Cut order | ✅ Complete | `CutOrder` with `requiredJson` per size, approve flow, status auto-sync from lays, archive blocked when lays exist. |
 | Actual cutting | ✅ Complete | `complete-cutting` → `CutOperation` (actual length/pieces/rejected/waste, markerStart/End), single-winner per lay, affordability check vs remaining fabric inside the lock. |
 | Fabric consumption | ✅ Complete | CONSUMED + WASTE ledger rows; roll `remainingLengthCm` decremented transactionally; never negative (validated). |
 | Waste | ✅ Complete | `wasteLengthCm` per cut → WASTE ledger rows + waste area shown on markers. |
-| Remnant | ✅ Complete | `POST /fabric-rolls/:id/close-roll` converts the remaining usable fabric into a `Remnant` (RM-… number, parent roll, source span, inherited identity/widths, location) in one transaction: blocks active lays, requires a contiguous leftover (ledger balance is authoritative), writes a REMNANT ledger row, flips remaining→0 to CLOSED, rebuilds segments with a REMNANT span. Partial close (`lengthCm`) cuts a shorter remnant off the last AVAILABLE span. Distinct states enforced: remaining roll (attached) vs remnant (separated) vs waste. Inventory: searchable list (status filter + sort) + status/location updates. UI: `/cutting/remnants` + close-roll dialog on the roll detail page. |
+| Remnant | ✅ Complete | `POST /fabric-rolls/:id/close-roll` converts the remaining usable fabric into a `Remnant` (RM-… number, parent roll, source span, inherited identity/widths, location) in one transaction: blocks active roll lays, requires a contiguous leftover (ledger balance is authoritative), writes a REMNANT ledger row, flips remaining→0 to CLOSED, rebuilds segments with a REMNANT span. Partial close (`lengthCm`) cuts a shorter remnant off the last AVAILABLE span. Distinct states enforced: remaining roll (attached) vs remnant (separated) vs waste. Inventory: searchable list (status filter + sort) + status/location updates. UI: `/cutting/remnants` + close-roll dialog on the roll detail page. |
+| Remnant as fabric source | ✅ Complete | Lays can be planned **on a remnant** (`POST /lay-plans` with `remnantId`, the parent roll still identifies the fabric): open-end consumption — the lay sits at the piece's current front on the parent coordinate axis, the piece flips PLANNED while its lay is open, and recording the cut **shrinks the piece** (source span advances by actual+waste; leftover stays AVAILABLE for the next lay). A fully consumed piece detaches: the parent ledger records the REMNANT+CONSUMED rows exactly once (no double-count — the piece was already detached at close-out). One active lay per remnant; cancel releases the hold (PLANNED→AVAILABLE, length intact). Lay/cut lists include the remnant; `/lay-plans?remnantId=` filter. UI: "From remnant (optional)" picker in the cut-order lay form (filtered to the selected roll) + a remnant badge on lay rows. |
 | Planned vs actual | ✅ Complete | Cut-order fulfillment table: per size required / planned (ratio×ply) / actual (share of actual sets by marker mix — **never copied from planned**) / short / excess; roll `cutQtyPlanned` vs `cutQtyActual`. Extracted to shared `computeFulfillment` and unit-tested. |
 
 ---
@@ -186,7 +187,7 @@ Missing calculations: roll weight auto-derivation from GSM (field accepted, not 
 | Roll auto-created from GRN rolls | ✅ Works | Receiving an inspected roll into a warehouse (`POST /warehouse-receipts`) auto-creates the `FabricRoll` inside the same transaction — identity (fabric/color/gsm/width/length/lot), supplier ref, full AVAILABLE segment, `IN_STOCK`, per-tenant `R-…` number, linked via `grnRollId`. Idempotent: an existing roll for the same GRN roll is reused. WR detail page links to the created roll. |
 | Fabric master → rolls | ✅ Works | `/fabrics` CRUD; a roll created with `fabricId` inherits name/type/GSM/width defaults. e2e-verified locally. |
 | Pattern set → revision v2 → apply-to-marker | ✅ Works | v2 is a new row (supersedes chain, pieces deep-copied); markers referencing v2 are untouched by later revisions; apply-to-marker places pieces first-fit. e2e-verified locally. |
-| Close roll → remnant → inventory | ✅ Works | Ledger-authoritative close-out creates the remnant, REMNANT ledger row, REMNANT segment, closes the roll at 0; partial close supported; active lays block close. e2e-verified locally (full + guard rails). |
+| Close roll → remnant → inventory → cut the remnant | ✅ Works | Ledger-authoritative close-out creates the remnant, REMNANT ledger row, REMNANT segment, closes the roll at 0; partial close supported; active roll lays block close. Remnant-sourced lay → cut shrinks the piece (open-end), fully-consumed piece detaches to the parent ledger exactly once, cancel releases the hold. e2e-verified locally (full + guard rails). |
 | Approval workflow auto-start (e.g. PR submit → instance) | 🟡 Partial | Engine + tasks UI work; starting an instance is a manual button on entity detail pages, not automatic on submit. |
 
 ---
@@ -234,9 +235,9 @@ Former hypotheses below (pre-verification):
 
 **E2E (local build, local API) — `scripts/cutting-e2e.mjs`: 43/43** (unchanged core chain: tenant isolation, RBAC, roll → measure → defect → marker → finalize → cut order → lay reserve → complete-cutting → ledger; concurrency via `scripts/ledger-concurrency.mjs`).
 
-**E2E (local build, local API) — `scripts/v1-gaps-e2e.mjs`: 36/36** (new V1 surface): fabric master (create, unit→cm conversion, roll linkage) · pattern set v1 → revision v2 (new row, supersedes, pieces copied, v1 untouched) → apply-to-marker → finalize · lay plan (10 ply) → cutting → close-roll → remnant (number RM-…, full leftover, identity inherited, roll CLOSED at 0, REMNANT ledger row + segment) · guard rails (empty roll rejected, active lays block) · remnant inventory (list, include, status filter, patch) · lay-plans index (search + sort) · cross-tenant 403/404 + role-without-permission 403.
+**E2E (local build, local API) — `scripts/v1-gaps-e2e.mjs`: 50/50** (new V1 surface): fabric master (create, unit→cm conversion, roll linkage) · pattern set v1 → revision v2 (new row, supersedes, pieces copied, v1 untouched) → apply-to-marker → finalize · lay plan (10 ply) → cutting → close-roll → remnant (number RM-…, full leftover, identity inherited, roll CLOSED at 0, REMNANT ledger row + segment) · guard rails (empty roll rejected, active lays block) · remnant inventory (list, include, status filter, patch) · **remnant as fabric source** (lay on the piece at its front, PLANNED hold, one-active-lay rule, partial cut shrinks the piece + span advances, leftover AVAILABLE again, parent ledger untouched — no double-count, `/lay-plans?remnantId=` filter, cancel releases) · lay-plans index (search + sort) · cross-tenant 403/404 + role-without-permission 403.
 
-**Fixes made while verifying:** `FabricsService.create` leaked `defaultWidth` into Prisma (500 on create); `PatternSet` nested `pieces.create` violated the scoped-client tenant guard (pieces now created explicitly with tenantId); close-roll drift when recorded waste fell outside consumed spans (ledger is now authoritative); `closeRoll` duplicate variable declaration (compile error); e2e script misread the `{success, data: [...], meta}` envelope.
+**Fixes made while verifying:** `FabricsService.create` leaked `defaultWidth` into Prisma (500 on create); `PatternSet` nested `pieces.create` violated the scoped-client tenant guard (pieces now created explicitly with tenantId); close-roll drift when recorded waste fell outside consumed spans (ledger is now authoritative); `closeRoll` duplicate variable declaration (compile error); e2e script misread the `{success, data: [...], meta}` envelope; `summarizeRoll` ignored RELEASED rows so available stayed understated after a lay cancel (now nets reservations against releases); segment partition gave REMNANT cells priority over lay cells, hiding lays planned inside a remnant span (lay > remnant > defect priority).
 
 **Live smoke (2026-09-17, read-only HTTP against the current deployment):**
 - ✅ `GET /api/v1/health` → 200 ok; ✅ login (`owner@acme.test`) issues a token; ✅ `/fabric-rolls`, `/markers`, `/lay-plans` lists respond 200 (DB connectivity proven).
@@ -263,7 +264,7 @@ Former hypotheses below (pre-verification):
 
 **P2 — Improvement**
 9. ✅ ~~Pattern-set management~~ — **Done**: `/pattern-sets` CRUD + versioned revisions + apply-to-marker + UI pages.
-10. ✅ ~~Remnant workflow~~ — **Done**: close-roll → remnant, REMNANT ledger/segments, inventory page. *(Limitation: lays/cuts cannot yet reserve against a remnant as a fabric source — remnants are inventory-only in V1.)*
+10. ✅ ~~Remnant workflow~~ — **Done**: close-roll → remnant, REMNANT ledger/segments, inventory page. Remnant-sourced lays/cuts (piece consumption) added 2026-09-17.
 11. Whitelist `sortBy` fields in `buildListArgs` (the cutting endpoints already do); link the plan-calculator from the cut-order detail UI; auto-start approval workflows on submit.
 
 ---
@@ -284,6 +285,7 @@ Former hypotheses below (pre-verification):
 | How much wasted? | WASTE ledger + per-cut `wasteLengthCm` | ✅ |
 | How much remains? | `summarizeRoll` (ledger-authoritative, ADJUSTMENT-aware) | ✅ |
 | Did the remainder become a remnant? | `close-roll` → `Remnant` + REMNANT ledger row + REMNANT segment | ✅ |
+| Was the remnant itself cut, and what is left of it? | Remnant-sourced lays + shrinking piece (`lengthCm`/source span), status AVAILABLE→PLANNED→AVAILABLE/CONSUMED | ✅ |
 | Traceability to the original roll? | Append-only `RollTransaction` (+ remnant `sourceRollId` + source span) | ✅ |
 
 All verified by the unit + e2e suites listed in §11; **live verification of the new chain still requires the redeploy + seed documented there.**

@@ -1151,6 +1151,11 @@ model Remnant {
 
   tenant     Tenant     @relation(fields: [tenantId], references: [id])
   sourceRoll FabricRoll @relation(fields: [sourceRollId], references: [id])
+  // Remnant-sourced cutting: lays/cuts that consume this remnant. The
+  // remnant SHRINKS as its fabric is cut (open-end consumption), so one row
+  // serves many lays over time — lengthCm is always the remaining length.
+  lays          LayPlan[]
+  cutOperations CutOperation[]
 
   @@unique([tenantId, number])
   @@index([tenantId])
@@ -1446,6 +1451,9 @@ model LayPlan {
   cutOrderId     String?
   markerId       String
   rollId         String
+  // Set when this lay is planned on a REMNANT (the fabric source) instead of
+  // the parent roll — markerStartCm stays a parent-roll coordinate for both.
+  remnantId      String?
   ply            Int
   garmentsPerMarker Int        @default(0) // snapshot of marker size ratio at plan time
   markerLengthCm Decimal       @db.Decimal(12, 2) // snapshot
@@ -1463,6 +1471,7 @@ model LayPlan {
   cutOrder   CutOrder?     @relation(fields: [cutOrderId], references: [id])
   marker     Marker        @relation(fields: [markerId], references: [id])
   roll       FabricRoll    @relation(fields: [rollId], references: [id])
+  remnant    Remnant?      @relation(fields: [remnantId], references: [id])
   cutOperations CutOperation[]
 
   @@unique([tenantId, number])
@@ -1498,6 +1507,10 @@ model CutOperation {
   tenant  Tenant     @relation(fields: [tenantId], references: [id])
   layPlan LayPlan    @relation(fields: [layPlanId], references: [id], onDelete: Cascade)
   roll    FabricRoll @relation(fields: [rollId], references: [id])
+  // Consuming a detached remnant piece cuts fabric off the piece, not the
+  // parent roll — the remnant link records which piece was cut.
+  remnant Remnant?   @relation(fields: [remnantId], references: [id])
+  remnantId String?
 
   @@unique([tenantId, number])
   @@index([tenantId])
@@ -1554,6 +1567,7 @@ enum FabricRollStatus {
 
 enum RemnantStatus {
   AVAILABLE
+  PLANNED
   RESERVED
   CONSUMED
   ARCHIVED

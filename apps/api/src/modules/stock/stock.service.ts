@@ -16,6 +16,7 @@ export class StockService {
   async transactions(dto: ListQueryDto) {
     const args = buildListArgs(dto, {
       searchFields: ['itemName', 'batch', 'lot', 'number'],
+      model: 'StockTransaction',
       where: {},
       defaultSortBy: 'createdOn',
     });

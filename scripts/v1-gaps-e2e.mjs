@@ -1,11 +1,14 @@
 /**
  * V1 gap-closure e2e — fabrics master, pattern library (versioned), roll
- * close-out → remnant, remnant inventory, lay-plans index feed, and the
- * verified 4-point inspection scoring (server-side, via the shared engine).
+ * close-out → remnant, remnant-sourced lays/cuts (piece consumption),
+ * remnant inventory, lay-plans index feed, and the verified 4-point
+ * inspection scoring (server-side, via the shared engine).
  *
  * Run against a local or deployed API:  node scripts/v1-gaps-e2e.mjs
  */
 const API = process.env.API_URL ?? 'http://localhost:3001/api/v1';
+
+const round2 = (n) => Math.round(n * 100) / 100;
 
 let passed = 0;
 let failed = 0;
@@ -209,6 +212,67 @@ async function main() {
   ok('lay-plans index search works', (r.json?.data ?? []).some((l) => l.id === lay.id));
   r = await req('GET', '/lay-plans?page=1&pageSize=20&sortBy=ply&sortOrder=desc', { token: owner });
   ok('lay-plans index sorting works (ply desc first)', Number(r.json?.data?.[0]?.ply ?? 0) >= Number(lay.ply));
+
+  // ── Remnant as a fabric source (lays + cuts consume the piece) ──────────
+  // The remnant from the close-out above is fully intact (available). Plan a
+  // lay on it, record a partial cut, and verify the piece shrinks while the
+  // parent roll's ledger stays untouched (the piece was already detached).
+  r = await req('POST', '/cut-orders', {
+    token: owner,
+    body: { styleRef: 'STYLE-001', color: 'Navy', required: { M: 40 } },
+  });
+  const rmOrder = r.json?.data;
+  const remnantLen0 = Number(close.remnant.lengthCm);
+  r = await req('POST', '/lay-plans', {
+    token: owner,
+    body: { cutOrderId: rmOrder.id, markerId: marker.id, rollId: roll.id, remnantId: close.remnant.id, ply: 8 },
+  });
+  const rmLay = r.json?.data;
+  ok('lay planned on the remnant', r.status === 200 || r.status === 201, String(r.json?.error?.message));
+  ok('remnant lay is placed at the piece front (parent coords)', Number(rmLay?.markerStartCm) === Number(close.remnant.sourceStartCm));
+  r = await req('GET', '/remnants?page=1&pageSize=50', { token: owner });
+  ok('remnant flips to PLANNED while its lay is open', (r.json?.data ?? []).find((x) => x.id === close.remnant.id)?.status === 'PLANNED');
+  r = await req('POST', '/lay-plans', {
+    token: owner,
+    body: { cutOrderId: rmOrder.id, markerId: marker.id, rollId: roll.id, remnantId: close.remnant.id, ply: 8 },
+  });
+  ok('second active lay on the same remnant → rejected', r.status === 400, String(r.json?.error?.message));
+
+  // Parent ledger must stay untouched by remnant planning.
+  r = await req('GET', `/fabric-rolls/${roll.id}/summary`, { token: owner });
+  const parentRemainingAtPlan = Number(r.json?.data?.remainingCm);
+  ok('parent roll balance untouched by remnant lay (still 0 after close)', parentRemainingAtPlan === 0, String(parentRemainingAtPlan));
+
+  r = await req('POST', `/lay-plans/${rmLay.id}/complete-cutting`, {
+    token: owner,
+    body: { actualLengthCm: Number(marker.lengthCm), actualPieces: 40, wasteLengthCm: 1 },
+  });
+  ok('cutting recorded on the remnant lay', r.status === 200 || r.status === 201, String(r.json?.error?.message));
+  const rmConsumed = Number(marker.lengthCm) + 1;
+  const rmLeftover = round2(remnantLen0 - rmConsumed);
+  r = await req('GET', `/remnants?page=1&pageSize=50`, { token: owner });
+  const rmAfter = (r.json?.data ?? []).find((x) => x.id === close.remnant.id);
+  ok('remnant shrinks by the consumed fabric', Math.abs(Number(rmAfter?.lengthCm) - rmLeftover) < 0.01, `left=${rmAfter?.lengthCm} expected=${rmLeftover}`);
+  ok('remnant AVAILABLE again after the cut (leftover fabric is free)', rmAfter?.status === 'AVAILABLE', rmAfter?.status);
+  ok('remnant source span advanced (open-end cutting)', Math.abs(Number(rmAfter?.sourceStartCm) - (Number(close.remnant.sourceStartCm) + rmConsumed)) < 0.01);
+  r = await req('GET', `/fabric-rolls/${roll.id}/summary`, { token: owner });
+  ok('parent roll ledger unchanged by remnant consumption (no double-count)', Number(r.json?.data?.remainingCm) === 0, String(r.json?.data?.remainingCm));
+
+  // Lay listing exposes the source piece.
+  r = await req('GET', `/lay-plans?remnantId=${close.remnant.id}`, { token: owner });
+  ok('lay-plans filter by remnant exposes the source piece', (r.json?.data ?? []).some((l) => l.id === rmLay.id && l.remnant?.number === close.remnant.number));
+
+  // Cancel path: plan again on the leftover, cancel → piece free + PLANNED→AVAILABLE.
+  r = await req('POST', '/lay-plans', {
+    token: owner,
+    body: { cutOrderId: rmOrder.id, markerId: marker.id, rollId: roll.id, remnantId: close.remnant.id, ply: 2 },
+  });
+  const rmLay2 = r.json?.data;
+  ok('second lay planned on the leftover', r.status === 200 || r.status === 201, String(r.json?.error?.message));
+  r = await req('POST', `/lay-plans/${rmLay2.id}/cancel`, { token: owner });
+  ok('remnant lay cancel works', r.status === 200 || r.status === 201, String(r.json?.error?.message));
+  r = await req('GET', '/remnants?page=1&pageSize=50', { token: owner });
+  ok('cancel releases the piece (PLANNED → AVAILABLE, length intact)', (r.json?.data ?? []).find((x) => x.id === close.remnant.id)?.status === 'AVAILABLE');
 
   // ── Verified 4-point inspection scoring (server-side) ───────────────────
   // Create a fresh roll via a second GRN-free path: reuse the receipts-less

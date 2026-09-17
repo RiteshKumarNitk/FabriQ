@@ -3,7 +3,7 @@
 import { ProcurementListPage } from '@/components/procurement/list-page';
 import { fromBase, LengthUnit } from '@fabriq/shared';
 
-const REMNANT_STATUS = ['AVAILABLE', 'RESERVED', 'CONSUMED', 'ARCHIVED'];
+const REMNANT_STATUS = ['AVAILABLE', 'PLANNED', 'RESERVED', 'CONSUMED', 'ARCHIVED'];
 
 export default function RemnantsPage() {
   return (

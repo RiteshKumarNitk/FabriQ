@@ -41,6 +41,7 @@ export class InspectionsService {
   async list(dto: ListQueryDto) {
     const args = buildListArgs(dto, {
       searchFields: ['number', 'remarks'],
+      model: 'FabricInspection',
       where: { isDeleted: false },
       defaultSortBy: 'createdOn',
     });

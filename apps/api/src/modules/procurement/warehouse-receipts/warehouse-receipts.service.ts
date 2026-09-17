@@ -45,6 +45,7 @@ export class WarehouseReceiptsService {
   async list(dto: ListQueryDto) {
     const args = buildListArgs(dto, {
       searchFields: ['number'],
+      model: 'WarehouseReceipt',
       where: { isDeleted: false },
       defaultSortBy: 'createdOn',
     });

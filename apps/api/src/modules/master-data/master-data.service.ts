@@ -18,6 +18,7 @@ export class MasterDataService extends CrudService {
   listCategories(dto: ListQueryDto) {
     return super.list(dto, {
       searchFields: ['code', 'name'],
+      model: 'MasterDataCategory',
       defaultSortBy: 'createdOn',
     });
   }
@@ -51,6 +52,7 @@ export class MasterDataService extends CrudService {
   async listAllItems(dto: ListQueryDto) {
     const args = buildListArgs(dto, {
       searchFields: ['code', 'name'],
+      model: 'MasterDataItem',
       where: { isDeleted: false },
       defaultSortBy: 'sortOrder',
       defaultSortOrder: 'asc',
@@ -94,6 +96,7 @@ export class MasterDataService extends CrudService {
     if (!cat) throw new NotFoundException('Category not found');
     const args = buildListArgs(dto, {
       searchFields: ['code', 'name'],
+      model: 'MasterDataItem',
       where: { isDeleted: false, categoryId },
       defaultSortBy: 'sortOrder',
       defaultSortOrder: 'asc',
