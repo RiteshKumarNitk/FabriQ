@@ -10,13 +10,37 @@ import {
   RollTransactionType,
   SegmentType,
   round4,
+  sizeWiseFulfillment,
   validatePlacement,
   type DefectSpan,
 } from '@fabriq/shared';
 import { getRequestContext } from '@fabriq/database';
 import { PrismaService } from '../../prisma/prisma.service';
+import { parseListFilters, resolveListSort } from '../../common/list-filters';
 import { NumberingService } from '../procurement/numbering.service';
 import { FabricRollsService } from './fabric-rolls.service';
+
+/** Columns the cut-orders list endpoint accepts as filters / sort keys (whitelisted). */
+const CUT_ORDER_FILTER_FIELDS = ['status', 'styleRef', 'color', 'fabricType'] as const;
+const CUT_ORDER_SORTABLE_FIELDS = [
+  'number',
+  'styleRef',
+  'color',
+  'fabricType',
+  'status',
+  'createdOn',
+  'updatedOn',
+] as const;
+
+/** Lay plans are sorted server-side against this whitelist. */
+const LAY_SORTABLE_FIELDS = [
+  'number',
+  'status',
+  'ply',
+  'markerLengthCm',
+  'theoreticalPieces',
+  'createdOn',
+] as const;
 
 /**
  * Production flow: Cut Order → Lay Plans (fabric allocation) → Cut Operations
@@ -37,20 +61,36 @@ export class ProductionService {
 
   // ── Cut orders ──────────────────────────────────────────────────────────
 
-  async listCutOrders(query: { search?: string; status?: string; page?: number; pageSize?: number }) {
+  async listCutOrders(query: {
+    search?: string;
+    status?: string;
+    filters?: string;
+    sortBy?: string;
+    sortOrder?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
-    const where: Record<string, unknown> = { isDeleted: false };
+    // filters JSON (UI convention) + legacy bare status param for compat.
+    const filters = parseListFilters(query.filters, CUT_ORDER_FILTER_FIELDS);
+    const where: Record<string, unknown> = { isDeleted: false, ...filters };
     if (query.status) where['status'] = query.status;
     if (query.search) {
-      where['OR'] = ['number', 'styleRef', 'color', 'fabricType'].map((f) => ({
-        [f]: { contains: query.search, mode: 'insensitive' },
-      }));
+      where['OR'] = ['number', 'styleRef', 'color', 'fabricType'].map((f) => {
+        const cond: Record<string, unknown> = { contains: query.search, mode: 'insensitive' };
+        return { [f]: cond };
+      });
     }
+    const { orderBy } = resolveListSort(query.sortBy, query.sortOrder, {
+      sortableFields: CUT_ORDER_SORTABLE_FIELDS,
+      defaultSortBy: 'createdOn',
+      defaultSortOrder: 'desc',
+    });
     const [items, total] = await Promise.all([
       this.prisma.client.cutOrder.findMany({
         where,
-        orderBy: { createdOn: 'desc' },
+        orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: { _count: { select: { layPlans: true } } },
@@ -156,59 +196,52 @@ export class ProductionService {
     });
   }
 
-  /** Required vs planned vs actual per size — never silently rounded. */
-  private fulfillment(order: { requiredJson: unknown; layPlans: Array<any> }): Record<string, { required: number; planned: number; actual: number; short: number; excess: number }> {
-    const required = (order.requiredJson ?? {}) as Record<string, number>;
-    const sizes = new Set<string>([...Object.keys(required)]);
-    const planned: Record<string, number> = {};
-    const actual: Record<string, number> = {};
-    for (const lay of order.layPlans ?? []) {
-      if (lay.status === LayPlanStatus.CANCELLED) continue;
-      const ratio = (lay.marker?.sizeRatioJson ?? {}) as Record<string, number>;
-      const markerGarments = Object.values(ratio).reduce((s: number, v) => s + Math.max(0, Math.floor(Number(v))), 0);
-      const op = (lay.cutOperations ?? []).find((o: any) => o.status === CutOperationStatus.COMPLETED);
-      const actualSets = op?.status === CutOperationStatus.COMPLETED ? Number(op.actualPieces ?? 0) : 0;
-      for (const [size, qty] of Object.entries(ratio)) {
-        sizes.add(size);
-        // Planned pieces per size = size ratio × ply (each ply repeats the marker).
-        planned[size] = (planned[size] ?? 0) + Number(qty) * lay.ply;
-        // Actual pieces per size = share of the lay's real output, by the
-        // marker's size mix (e.g. 5 garments/lay, 40 ply ⇒ 40 × 5 = 200 sets;
-        // an M-heavy marker contributes 2/5 of every lay's actual output).
-        if (markerGarments > 0 && actualSets > 0) {
-          actual[size] = (actual[size] ?? 0) + Math.floor((Number(qty) / markerGarments) * actualSets);
-        }
-      }
-    }
-    const out: Record<string, { required: number; planned: number; actual: number; short: number; excess: number }> = {};
-    for (const size of sizes) {
-      const r = Number(required[size] ?? 0);
-      const p = planned[size] ?? 0;
-      const a = actual[size] ?? 0;
-      out[size] = {
-        required: r,
-        planned: p,
-        actual: a,
-        short: Math.max(0, r - p),
-        excess: Math.max(0, p - r),
-      };
-    }
-    return out;
+  /** Required vs planned vs actual per size — shared engine, never silently rounded. */
+  private fulfillment(order: { requiredJson: unknown; layPlans: Array<any> }) {
+    return sizeWiseFulfillment(
+      order.requiredJson as Record<string, number> | null,
+      (order.layPlans ?? []).map((lay) => ({
+        status: lay.status,
+        ply: lay.ply,
+        sizeRatio: (lay.marker?.sizeRatioJson ?? {}) as Record<string, number>,
+        cutOperations: lay.cutOperations ?? [],
+      })),
+    );
   }
 
   // ── Lay plans ───────────────────────────────────────────────────────────
 
-  async listLayPlans(query: { cutOrderId?: string; rollId?: string; status?: string; page?: number; pageSize?: number }) {
+  async listLayPlans(query: {
+    cutOrderId?: string;
+    rollId?: string;
+    status?: string;
+    search?: string;
+    filters?: string;
+    sortBy?: string;
+    sortOrder?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
     const where: Record<string, unknown> = {};
     if (query.cutOrderId) where['cutOrderId'] = query.cutOrderId;
     if (query.rollId) where['rollId'] = query.rollId;
     if (query.status) where['status'] = query.status;
+    if (query.search) {
+      where['OR'] = ['number', 'notes'].map((f) => ({
+        [f]: { contains: query.search, mode: 'insensitive' },
+      }));
+    }
+    const { orderBy } = resolveListSort(query.sortBy, query.sortOrder, {
+      sortableFields: LAY_SORTABLE_FIELDS,
+      defaultSortBy: 'createdOn',
+      defaultSortOrder: 'desc',
+    });
     const [items, total] = await Promise.all([
       this.prisma.client.layPlan.findMany({
         where,
-        orderBy: { createdOn: 'desc' },
+        orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {

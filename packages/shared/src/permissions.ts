@@ -134,6 +134,24 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   { code: 'cutorder:create', module: 'Cutting', name: 'Create Cut Orders', description: 'Create cut orders and lay plans' },
   { code: 'cutorder:update', module: 'Cutting', name: 'Update Cut Orders', description: 'Update cut orders, lays and record cutting' },
   { code: 'cutorder:delete', module: 'Cutting', name: 'Archive Cut Orders', description: 'Archive cut orders' },
+
+  // Cutting Room — fabric master
+  { code: 'fabric:read', module: 'Cutting', name: 'View Fabric Master', description: 'View the fabric catalog' },
+  { code: 'fabric:create', module: 'Cutting', name: 'Create Fabrics', description: 'Create fabric master entries' },
+  { code: 'fabric:update', module: 'Cutting', name: 'Update Fabrics', description: 'Update fabric master entries' },
+  { code: 'fabric:delete', module: 'Cutting', name: 'Archive Fabrics', description: 'Archive fabric master entries' },
+
+  // Cutting Room — pattern library
+  { code: 'pattern:read', module: 'Cutting', name: 'View Pattern Library', description: 'View pattern sets and pieces' },
+  { code: 'pattern:create', module: 'Cutting', name: 'Create Patterns', description: 'Create pattern sets, pieces and new revisions' },
+  { code: 'pattern:update', module: 'Cutting', name: 'Update Patterns', description: 'Update pattern sets and pieces' },
+  { code: 'pattern:delete', module: 'Cutting', name: 'Archive Patterns', description: 'Archive pattern sets' },
+
+  // Cutting Room — remnants
+  { code: 'remnant:read', module: 'Cutting', name: 'View Remnants', description: 'View fabric remnants' },
+  { code: 'remnant:create', module: 'Cutting', name: 'Create Remnants', description: 'Close rolls and create remnants' },
+  { code: 'remnant:update', module: 'Cutting', name: 'Update Remnants', description: 'Update remnant status and location' },
+  { code: 'remnant:delete', module: 'Cutting', name: 'Archive Remnants', description: 'Archive remnants' },
 ];
 
 export const PERMISSION_MODULES: readonly string[] = Array.from(

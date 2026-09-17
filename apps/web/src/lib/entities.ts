@@ -1,5 +1,7 @@
 import {
+  AlignHorizontalDistributeCenter,
   Building2,
+  Calculator,
   ClipboardList,
   Factory,
   FileText,
@@ -12,10 +14,13 @@ import {
   Package,
   PackageOpen,
   Palette,
+  Recycle,
   ScanSearch,
   Scissors,
   Settings2,
+  Shapes,
   Shield,
+  SwatchBook,
   Truck,
   Users,
   Warehouse,
@@ -24,6 +29,7 @@ import {
 } from 'lucide-react';
 import {
   EntityStatus,
+  LengthUnit,
   ProductionLineStatus,
   TenantStatus,
   UserStatus,
@@ -386,7 +392,7 @@ export const ENTITY_REGISTRY: EntityConfig[] = [
     label: 'Workflow Definition',
     plural: 'Workflow Definitions',
     description: 'Approval flows for business documents.',
-    apiPath: '/workflows',
+    apiPath: '/workflows/definitions',
     icon: Workflow,
     group: 'Configuration',
     permissions: { read: 'workflow:read', create: 'workflow:create', update: 'workflow:create', delete: 'workflow:delete' },
@@ -448,6 +454,38 @@ export const ENTITY_REGISTRY: EntityConfig[] = [
     ],
     columns: ['code', 'name', 'city', 'creditDays', 'status'],
     searchFields: ['code', 'name', 'gstin', 'city', 'email', 'contactPerson'],
+    detail: true,
+  },
+
+  // ── Cutting Room ──────────────────────────────────────────────────────
+  {
+    key: 'fabrics',
+    label: 'Fabric',
+    plural: 'Fabric Master',
+    description: 'Reusable fabric identities (code, type, composition, GSM, default width) referenced by rolls.',
+    apiPath: '/fabrics',
+    icon: SwatchBook,
+    group: 'Cutting',
+    permissions: { read: 'fabric:read', create: 'fabric:create', update: 'fabric:update', delete: 'fabric:delete' },
+    fields: [
+      codeField,
+      { name: 'name', label: 'Fabric Name', type: 'text', required: true, column: true, detail: true },
+      { name: 'fabricType', label: 'Fabric Type', type: 'text', column: true, detail: true },
+      { name: 'composition', label: 'Composition', type: 'text', detail: true, help: 'e.g. 100% Cotton' },
+      { name: 'gsm', label: 'GSM', type: 'number', min: 0, column: true, detail: true },
+      { name: 'defaultWidth', label: 'Default Width', type: 'number', min: 0, detail: true, help: 'Nominal width in the chosen unit' },
+      {
+        name: 'defaultWidthUnit',
+        label: 'Width Unit',
+        type: 'select',
+        options: Object.values(LengthUnit).map((v) => ({ label: v, value: v })),
+        detail: true,
+      },
+      { name: 'description', label: 'Description', type: 'textarea', detail: true },
+      statusField(Object.values(EntityStatus).map((v) => ({ label: v, value: v }))),
+    ],
+    columns: ['code', 'name', 'fabricType', 'gsm', 'status'],
+    searchFields: ['code', 'name', 'fabricType', 'composition'],
     detail: true,
   },
 ];
@@ -513,9 +551,14 @@ export const SIDEBAR_GROUPS: SidebarGroup[] = [
   {
     label: 'Cutting Room',
     items: [
+      { label: 'Fabric Master', href: '/admin/fabrics', icon: SwatchBook, permission: 'fabric:read' },
       { label: 'Fabric Rolls', href: '/cutting/rolls', icon: Layers, permission: 'roll:read' },
+      { label: 'Pattern Library', href: '/cutting/patterns', icon: Shapes, permission: 'pattern:read' },
       { label: 'Markers', href: '/cutting/markers', icon: Scissors, permission: 'marker:read' },
       { label: 'Cut Orders', href: '/cutting/cut-orders', icon: Package, permission: 'cutorder:read' },
+      { label: 'Lay Plans', href: '/cutting/lay-plans', icon: AlignHorizontalDistributeCenter, permission: 'cutorder:read' },
+      { label: 'Remnants', href: '/cutting/remnants', icon: Recycle, permission: 'remnant:read' },
+      { label: 'Plan Calculator', href: '/cutting/plan-calculator', icon: Calculator, permission: 'cutorder:read' },
     ],
   },
   {

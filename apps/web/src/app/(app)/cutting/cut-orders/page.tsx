@@ -20,16 +20,16 @@ export default function CutOrdersPage() {
       searchPlaceholder="Search by number, style, color…"
       rowHref={(r) => `/cutting/cut-orders/${r.id}`}
       columns={[
-        { key: 'number', label: 'Order', render: (r) => <span className="font-mono font-medium">{String(r.number)}</span> },
-        { key: 'styleRef', label: 'Style', render: (r) => (r.styleRef as string) ?? '—' },
-        { key: 'color', label: 'Color', render: (r) => (r.color as string) ?? '—' },
+        { key: 'number', label: 'Order', sortable: true, render: (r) => <span className="font-mono font-medium">{String(r.number)}</span> },
+        { key: 'styleRef', label: 'Style', sortable: true, render: (r) => (r.styleRef as string) ?? '—' },
+        { key: 'color', label: 'Color', sortable: true, render: (r) => (r.color as string) ?? '—' },
         { key: 'requiredJson', label: 'Required', render: (r) => {
           const req = (r.requiredJson ?? {}) as Record<string, number>;
           const total = Object.values(req).reduce((s, v) => s + Number(v), 0);
           return <span className="tabular-nums">{total.toLocaleString()} pcs</span>;
         } },
         { key: 'layPlans', label: 'Lays', render: (r) => String((r._count as { layPlans?: number })?.layPlans ?? '—') },
-        { key: 'status', label: 'Status', render: (r) => <PStatus value={String(r.status)} /> },
+        { key: 'status', label: 'Status', sortable: true, render: (r) => <PStatus value={String(r.status)} /> },
       ]}
     />
   );

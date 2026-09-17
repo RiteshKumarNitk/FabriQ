@@ -27,16 +27,16 @@ export default function FabricRollsPage() {
       searchPlaceholder="Search by number, fabric, color, lot…"
       rowHref={(r) => `/cutting/rolls/${r.id}`}
       columns={[
-        { key: 'number', label: 'Roll', render: (r) => <span className="font-mono font-medium">{String(r.number)}</span> },
-        { key: 'fabricName', label: 'Fabric', render: (r) => (r.fabricName as string) ?? (r.fabricType as string) ?? '—' },
-        { key: 'color', label: 'Color', render: (r) => (r.color as string) ?? '—' },
-        { key: 'shadeLot', label: 'Lot', render: (r) => (r.shadeLot as string) ?? '—' },
-        { key: 'gsm', label: 'GSM', render: (r) => (r.gsm != null ? String(r.gsm) : '—') },
-        { key: 'originalLengthCm', label: 'Original', render: (r) => (r.originalLengthCm != null ? fmtLength(Number(r.originalLengthCm), LengthUnit.METERS) : '—') },
-        { key: 'remainingLengthCm', label: 'Remaining', render: (r) => (r.remainingLengthCm != null ? fmtLength(Number(r.remainingLengthCm), LengthUnit.METERS) : '—') },
-        { key: 'widthCm', label: 'Width', render: (r) => fmtWidth(r, 'widthCm') },
-        { key: 'usableWidthCm', label: 'Usable', render: (r) => fmtWidth(r, 'usableWidthCm') },
-        { key: 'status', label: 'Status', render: (r) => <PStatus value={String(r.status)} /> },
+        { key: 'number', label: 'Roll', sortable: true, render: (r) => <span className="font-mono font-medium">{String(r.number)}</span> },
+        { key: 'fabricName', label: 'Fabric', sortable: true, render: (r) => (r.fabricName as string) ?? (r.fabricType as string) ?? '—' },
+        { key: 'color', label: 'Color', sortable: true, render: (r) => (r.color as string) ?? '—' },
+        { key: 'shadeLot', label: 'Lot', sortable: true, render: (r) => (r.shadeLot as string) ?? '—' },
+        { key: 'gsm', label: 'GSM', sortable: true, render: (r) => (r.gsm != null ? String(r.gsm) : '—') },
+        { key: 'originalLengthCm', label: 'Original', sortable: true, render: (r) => (r.originalLengthCm != null ? fmtLength(Number(r.originalLengthCm), LengthUnit.METERS) : '—') },
+        { key: 'remainingLengthCm', label: 'Remaining', sortable: true, render: (r) => (r.remainingLengthCm != null ? fmtLength(Number(r.remainingLengthCm), LengthUnit.METERS) : '—') },
+        { key: 'widthCm', label: 'Width', sortable: true, render: (r) => fmtWidth(r, 'widthCm') },
+        { key: 'usableWidthCm', label: 'Usable', sortable: true, render: (r) => fmtWidth(r, 'usableWidthCm') },
+        { key: 'status', label: 'Status', sortable: true, render: (r) => <PStatus value={String(r.status)} /> },
       ]}
     />
   );

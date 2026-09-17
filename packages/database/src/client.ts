@@ -44,6 +44,8 @@ const TENANT_SCOPED_MODELS = new Set<string>([
   'StockTransaction',
   // Phase 3 — Cutting Room
   'FabricRoll',
+  'Fabric',
+  'Remnant',
   'FabricMeasurement',
   'FabricSegment',
   'FabricDefect',

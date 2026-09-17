@@ -33,6 +33,8 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { ProcurementModule } from './modules/procurement/procurement.module';
 import { StockModule } from './modules/stock/stock.module';
 import { PlatformModule } from './modules/platform/platform.module';
+import { FabricsModule } from './modules/fabrics/fabrics.module';
+import { PatternsModule } from './modules/patterns/patterns.module';
 import { CuttingModule } from './modules/cutting/cutting.module';
 
 @Module({
@@ -64,6 +66,8 @@ import { CuttingModule } from './modules/cutting/cutting.module';
     ProcurementModule,
     StockModule,
     PlatformModule,
+    FabricsModule,
+    PatternsModule,
     CuttingModule,
   ],
   controllers: [AppController],

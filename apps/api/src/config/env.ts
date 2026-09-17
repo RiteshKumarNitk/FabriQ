@@ -41,9 +41,35 @@ export const env = {
   // never point this at the API's own domain (fabri-q.vercel.app) while the API
   // serves it — that would create a redirect loop.
   webAppUrl: optional('WEB_APP_URL', 'https://fabriq.vercel.app'),
-  // Local disk only for Phase 1 (YAGNI). When Cloudinary/S3 is required,
-  // swap the FileService internals — the rest of the app is unaffected.
+  // Document storage. STORAGE_DRIVER selects the FileService backend:
+  // 'local' for dev, 'cloudinary' for production (serverless hosts have a
+  // read-only filesystem).
   storage: {
+    /**
+     * 'local' (default) writes to the local filesystem (dev only — serverless
+     * filesystems like Vercel are read-only). 'cloudinary' stores files in
+     * Cloudinary as raw resources via the official SDK.
+     */
+    driver: optional('STORAGE_DRIVER', 'local') as 'local' | 'cloudinary',
     localPath: optional('STORAGE_LOCAL_PATH', './uploads'),
+    cloudinary: {
+      cloudName: requiredIf('CLOUDINARY_CLOUD_NAME', 'cloudinary'),
+      apiKey: requiredIf('CLOUDINARY_API_KEY', 'cloudinary'),
+      apiSecret: requiredIf('CLOUDINARY_API_SECRET', 'cloudinary'),
+      /** Optional folder prefix inside Cloudinary (e.g. 'fabriq-documents'). */
+      folder: process.env.CLOUDINARY_FOLDER,
+    },
   },
 };
+
+/**
+ * Reads an env var, but only throws when `driverName` is actually selected —
+ * lets .env files keep all driver sections present without boot errors.
+ */
+function requiredIf(name: string, driverName: string): string | undefined {
+  const value = process.env[name];
+  if (!value && process.env.STORAGE_DRIVER === driverName) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+}

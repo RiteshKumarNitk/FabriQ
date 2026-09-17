@@ -9,12 +9,14 @@ import {
   LengthUnit,
   RollTransactionType,
   SegmentType,
+  buildSegmentPartition,
   round4,
   summarizeRoll,
   toBase,
 } from '@fabriq/shared';
 import { getRequestContext } from '@fabriq/database';
 import { PrismaService } from '../../prisma/prisma.service';
+import { parseListFilters, resolveListSort } from '../../common/list-filters';
 import { NumberingService } from '../procurement/numbering.service';
 import {
   AddMeasurementDto,
@@ -41,6 +43,24 @@ type RollRow = {
   [key: string]: unknown;
 };
 
+/** Columns the rolls list endpoint accepts as filters / sort keys (whitelisted). */
+const ROLL_FILTER_FIELDS = ['status', 'fabricName', 'fabricType', 'color', 'shadeLot'] as const;
+const ROLL_SORTABLE_FIELDS = [
+  'number',
+  'fabricName',
+  'fabricType',
+  'color',
+  'shadeLot',
+  'gsm',
+  'originalLengthCm',
+  'remainingLengthCm',
+  'widthCm',
+  'usableWidthCm',
+  'status',
+  'createdOn',
+  'updatedOn',
+] as const;
+
 /**
  * Fabric rolls: continuous material sources with a transaction ledger and
  * logical segments. Every material-moving mutation runs inside a transaction
@@ -56,20 +76,35 @@ export class FabricRollsService {
 
   // ── CRUD ────────────────────────────────────────────────────────────────
 
-  async list(query: { search?: string; status?: string; page?: number; pageSize?: number }) {
+  async list(query: {
+    search?: string;
+    status?: string;
+    filters?: string;
+    sortBy?: string;
+    sortOrder?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
-    const where: Record<string, unknown> = { isDeleted: false };
+    // filters JSON (UI convention) + legacy bare status param for compat.
+    const filters = parseListFilters(query.filters, ROLL_FILTER_FIELDS);
+    const where: Record<string, unknown> = { isDeleted: false, ...filters };
     if (query.status) where['status'] = query.status;
     if (query.search) {
       where['OR'] = ['number', 'fabricName', 'fabricType', 'color', 'shadeLot'].map((f) => ({
         [f]: { contains: query.search, mode: 'insensitive' },
       }));
     }
+    const { orderBy } = resolveListSort(query.sortBy, query.sortOrder, {
+      sortableFields: ROLL_SORTABLE_FIELDS,
+      defaultSortBy: 'createdOn',
+      defaultSortOrder: 'desc',
+    });
     const [items, total] = await Promise.all([
       this.prisma.client.fabricRoll.findMany({
         where,
-        orderBy: { createdOn: 'desc' },
+        orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
@@ -149,6 +184,97 @@ export class FabricRollsService {
       },
     });
     return this.getById(roll.id);
+  }
+
+  /**
+   * Creates a cutting-room FabricRoll straight from an inspected GRN roll —
+   * the procurement → cutting hand-off with no manual re-entry. The caller
+   * (warehouse-receipt service) runs this inside its own transaction, so no
+   * transaction is opened here.
+   *
+   * Unit conventions (matching the GRN capture form): roll length is meters,
+   * roll width is inches (the FabricRoll width display default). Derived
+   * state (remaining, segment, ledger-free) is identical to create(): a full
+   * AVAILABLE segment spanning the original length, status IN_STOCK.
+   */
+  async createFromGrnRoll(
+    grnRoll: {
+      id: string;
+      rollNumber: string;
+      fabricType?: string | null;
+      color?: string | null;
+      gsm?: unknown;
+      width?: unknown;
+      length?: unknown;
+      weight?: unknown;
+      batch?: string | null;
+      lot?: string | null;
+      condition?: string | null;
+    },
+    opts: {
+      /** Supplier name/code stamped as supplierRef. */
+      supplierRef?: string;
+      /** Who to attribute the roll to (defaults to the request context user). */
+      userId?: string;
+    } = {},
+    /** Optional interactive-transaction client from the caller. */
+    tx?: { fabricRoll: any },
+  ): Promise<string> {
+    const widthUnit = LengthUnit.INCHES;
+    const widthCm = round4(toBase(Number(grnRoll.width ?? 0), widthUnit));
+    const originalLengthCm = round4(toBase(Number(grnRoll.length ?? 0), LengthUnit.METERS));
+    if (originalLengthCm <= 0) {
+      throw new BadRequestException(
+        `GRN roll "${grnRoll.rollNumber}" has no usable length — record a length before receiving it`,
+     );
+    }
+    if (widthCm <= 0) {
+      throw new BadRequestException(
+        `GRN roll "${grnRoll.rollNumber}" has no usable width — record a width before receiving it`,
+      );
+    }
+    const number = await this.numbering.next('R');
+    const ctx = getRequestContext();
+    const createdBy = opts.userId ?? ctx?.userId ?? null;
+    const client = tx ?? this.prisma.raw;
+    const roll = await client.fabricRoll.create({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      data: {
+        tenantId: this.tenantId(),
+        number,
+        grnRollId: grnRoll.id,
+        fabricName: grnRoll.fabricType,
+        fabricType: grnRoll.fabricType,
+        color: grnRoll.color,
+        shadeLot: grnRoll.lot,
+        supplierRef: opts.supplierRef ?? null,
+        gsm: grnRoll.gsm != null ? Number(grnRoll.gsm) : null,
+        originalLengthCm,
+        remainingLengthCm: originalLengthCm,
+        widthCm,
+        usableWidthCm: widthCm,
+        weightKg: grnRoll.weight != null ? Number(grnRoll.weight) : null,
+        lengthUnit: LengthUnit.METERS,
+        widthUnit,
+        status: FabricRollStatus.IN_STOCK,
+        notes:
+          grnRoll.condition && grnRoll.condition !== 'GOOD'
+            ? `Received via GRN (condition: ${grnRoll.condition}).`
+            : 'Received via GRN.',
+        createdBy,
+        updatedBy: createdBy,
+        segments: {
+          create: {
+            tenantId: this.tenantId(),
+            startCm: 0,
+            endCm: originalLengthCm,
+            type: SegmentType.AVAILABLE,
+            label: 'Full roll',
+          },
+        },
+      } as any,
+    });
+    return roll.id;
   }
 
   async update(id: string, dto: UpdateFabricRollDto) {
@@ -399,6 +525,129 @@ export class FabricRollsService {
     });
   }
 
+  /**
+   * Close-out: cut the roll's remaining usable fabric off as a REMNANT.
+   *
+   * Rules (§7/§8 of the spec):
+   *  • distinct states — remaining roll (still attached) vs remnant
+   *    (physically separated) vs waste (unusable) are never mixed: this
+   *    operation is the ONLY thing that turns remaining fabric into a
+   *    remnant, and it writes a REMNANT ledger row for the history.
+   *  • the roll must be settled: active (PLANNED / IN_PROGRESS) lay plans
+   *    block close-out; completed lays and defects are fine.
+   *  • the leftover must be one contiguous AVAILABLE span — physically you
+   *    can only cut one piece off; disconnected spans must be consumed or
+   *    written off first.
+   *  • default length = the whole leftover span; a smaller `lengthCm` cuts a
+   *    shorter remnant and leaves the rest on the (still open) roll.
+   *  • the roll closes (status CLOSED) exactly when its remaining fabric
+   *    reaches zero; the ledger row preserves the parent-roll history.
+   */
+  async closeRoll(rollId: string, dto: { lengthCm?: number; location?: string; notes?: string }) {
+    const roll = await this.getRollRow(rollId);
+    const ctx = getRequestContext();
+    const remnant = await this.prisma.raw.$transaction(
+      async (tx: any) => {
+        // Serialize against lay/cut ledger writers.
+        await tx.$queryRaw`SELECT id FROM "FabricRoll" WHERE id = ${rollId} FOR UPDATE`;
+        const activeLays = await tx.layPlan.count({
+          where: { rollId, status: { in: ['PLANNED', 'IN_PROGRESS'] } },
+        });
+        if (activeLays > 0) {
+          throw new BadRequestException('Roll has active lay plans — cancel or complete them before closing');
+        }
+        const available = await tx.fabricSegment.findMany({
+          where: { rollId, type: SegmentType.AVAILABLE },
+          orderBy: { startCm: 'asc' },
+        });
+        if (available.length === 0) {
+          throw new BadRequestException('Roll has no available fabric left to convert into a remnant');
+        }
+        const remaining = Number(roll.remainingLengthCm);
+        if (remaining <= 1e-6) {
+          throw new BadRequestException('Roll has no remaining fabric in the ledger to convert into a remnant');
+        }
+        const firstStart = Number(available[0].startCm);
+        const lastEnd = Number(available[available.length - 1].endCm);
+        const largestSpan = Math.max(...available.map((s: any) => Number(s.endCm) - Number(s.startCm)));
+        // The LEDGER is authoritative for the balance; segments are the
+        // physical picture. A full close converts the ledger remaining and
+        // covers every AVAILABLE span (absorbing any ledger/segment delta,
+        // e.g. waste recorded outside consumed spans). A partial close cuts
+        // a contiguous piece off the END of the last AVAILABLE span.
+        let lengthCm: number;
+        let cutStart: number;
+        let cutEnd: number;
+        if (dto.lengthCm != null) {
+          lengthCm = round4(dto.lengthCm);
+          if (lengthCm <= 0) throw new BadRequestException('Remnant length must be greater than zero');
+          if (lengthCm > largestSpan + 1e-6) {
+            throw new BadRequestException(
+              `Remnant length (${lengthCm} cm) exceeds the largest available span (${round4(largestSpan)} cm)`,
+            );
+          }
+          cutEnd = lastEnd;
+          cutStart = round4(cutEnd - lengthCm);
+        } else {
+          lengthCm = round4(remaining);
+          cutStart = firstStart;
+          cutEnd = Number(roll.originalLengthCm);
+        }
+        const number = await this.numbering.next('RM');
+        const created = await tx.remnant.create({
+          data: {
+            tenantId: this.tenantId(),
+            number,
+            sourceRollId: rollId,
+            sourceStartCm: cutStart,
+            sourceEndCm: cutEnd,
+            lengthCm,
+            widthCm: roll.widthCm,
+            usableWidthCm: roll.usableWidthCm,
+            status: 'AVAILABLE',
+            location: dto.location,
+            fabricName: roll.fabricName,
+            fabricType: roll.fabricType,
+            color: roll.color,
+            shadeLot: roll.shadeLot,
+            gsm: roll.gsm,
+            notes: dto.notes,
+            createdBy: ctx?.userId ?? null,
+            updatedBy: ctx?.userId ?? null,
+          },
+        });
+        const balance = round4(remaining - lengthCm);
+        await tx.rollTransaction.create({
+          data: {
+            tenantId: this.tenantId(),
+            rollId,
+            type: RollTransactionType.REMNANT,
+            quantityCm: -lengthCm,
+            balanceAfterCm: balance,
+            refType: 'remnant',
+            refId: created.id,
+            refLabel: `Remnant ${number} cut from the roll`,
+            note: dto.notes,
+            createdBy: ctx?.userId ?? null,
+          },
+        });
+        await tx.fabricRoll.update({
+          where: { id: rollId },
+          data: {
+            remainingLengthCm: balance,
+            ...(balance <= 1e-6 ? { status: FabricRollStatus.CLOSED } : {}),
+            updatedBy: ctx?.userId ?? null,
+            version: { increment: 1 },
+          },
+        });
+        await this.rebuildSegments(tx, rollId);
+        return created;
+      },
+      { timeout: 20000, maxWait: 10000 },
+    );
+    return { remnant, roll: await this.getById(rollId) };
+  }
+
   /** Summary for the detail header (uses the shared calculation engine). */
   async summary(rollId: string) {
     const roll = await this.getRollRow(rollId);
@@ -443,59 +692,32 @@ export class FabricRollsService {
   async rebuildSegments(tx: SegmentTx, rollId: string) {
     const roll = await tx.fabricRoll.findUnique({ where: { id: rollId } });
     if (!roll) return;
-    const [defects, lays] = await Promise.all([
+    const [defects, lays, remnants] = await Promise.all([
       tx.fabricDefect.findMany({ where: { rollId, isDeleted: false }, orderBy: { startCm: 'asc' } }),
       tx.layPlan.findMany({
         where: { rollId, status: { in: ['PLANNED', 'IN_PROGRESS', 'COMPLETED'] } },
         orderBy: { markerStartCm: 'asc' },
         include: { cutOperations: { where: { status: 'COMPLETED' } } },
       }),
+      // Remnants created by close-out — REMNANT spans on the parent timeline.
+      // (No `remnants` relation delegate on the tx type; query the model directly.)
+      (tx as any).remnant.findMany({ where: { sourceRollId: rollId, isDeleted: false } }),
     ]);
-    const rows: Array<{ startCm: number; endCm: number; type: SegmentType; refType?: string; refId?: string; label?: string }> = [];
-    const total = Number(roll.originalLengthCm);
-    const push = (start: number, end: number, type: SegmentType, refType?: string, refId?: string, label?: string) => {
-      if (end - start <= 1e-6) return;
-      rows.push({ startCm: round4(start), endCm: round4(end), type, refType, refId, label });
-    };
-
-    const laySegmentTypes = new Map<string, SegmentType>();
-    const laySpans = new Map<string, { start: number; end: number }>();
-    // Cut points collect every boundary event.
-    const events = new Set<number>([0, total]);
-    for (const d of defects) {
-      events.add(Number(d.startCm));
-      events.add(Math.min(Number(d.endCm), total));
-    }
-    for (const lay of lays) {
-      const s = Number(lay.markerStartCm);
-      const e = Math.min(s + Number(lay.markerLengthCm), total);
-      const completed = lay.cutOperations.length > 0;
-      if (e > s) {
-        events.add(Math.max(0, s));
-        events.add(e);
-        laySegmentTypes.set(lay.id, completed ? SegmentType.CONSUMED : SegmentType.RESERVED);
-        laySpans.set(lay.id, { start: s, end: e });
-      }
-    }
-
-    const sorted = [...events].sort((a, b) => a - b);
-    for (let i = 0; i < sorted.length - 1; i++) {
-      const s = sorted[i];
-      const e = sorted[i + 1];
-      if (e - s <= 1e-6) continue;
-      const defect = defects.find((d: any) => Number(d.startCm) <= s + 1e-6 && Number(d.endCm) >= e - 1e-6);
-      const lay = [...laySpans.entries()].find(
-        ([, span]) => span.start <= s + 1e-6 && span.end >= e - 1e-6,
-      );
-      if (lay) {
-        const [layId, span] = lay;
-        push(s, e, laySegmentTypes.get(layId) ?? SegmentType.RESERVED, 'lay-plan', layId, `Lay ${layId.slice(0, 8)}`);
-      } else if (defect) {
-        push(s, e, SegmentType.DEFECT, 'defect', defect.id, `Defect ${defect.code}`);
-      } else {
-        push(s, e, SegmentType.AVAILABLE);
-      }
-    }
+    const rows = buildSegmentPartition({
+      totalCm: Number(roll.originalLengthCm),
+      defects: defects.map((d: any) => ({ id: d.id, code: d.code, startCm: Number(d.startCm), endCm: Number(d.endCm) })),
+      lays: lays.map((lay: any) => {
+        const s = Number(lay.markerStartCm);
+        const e = Math.min(s + Number(lay.markerLengthCm), Number(roll.originalLengthCm));
+        return { id: lay.id, startCm: s, endCm: e, completed: lay.cutOperations.length > 0 };
+      }),
+      remnants: remnants.map((r: any) => ({
+        id: r.id,
+        number: r.number,
+        startCm: Number(r.sourceStartCm),
+        endCm: Number(r.sourceEndCm),
+      })),
+    });
 
     await tx.fabricSegment.deleteMany({ where: { rollId } });
     if (rows.length) {

@@ -16,6 +16,7 @@ import {
 } from '@fabriq/shared';
 import { getRequestContext } from '@fabriq/database';
 import { PrismaService } from '../../prisma/prisma.service';
+import { parseListFilters, resolveListSort } from '../../common/list-filters';
 import { NumberingService } from '../procurement/numbering.service';
 import { CreateMarkerDto, FinalizeMarkerDto, MarkerPieceDto, UpdateMarkerDto } from './dto/marker.dto';
 
@@ -30,6 +31,22 @@ interface MarkerRow {
   sizeRatioJson: any;
   [key: string]: unknown;
 }
+
+/** Columns the markers list endpoint accepts as filters / sort keys (whitelisted). */
+const MARKER_FILTER_FIELDS = ['status', 'styleRef', 'fabricType', 'color'] as const;
+const MARKER_SORTABLE_FIELDS = [
+  'number',
+  'styleRef',
+  'fabricType',
+  'color',
+  'widthCm',
+  'lengthCm',
+  'garmentsPerMarker',
+  'efficiencyPct',
+  'status',
+  'createdOn',
+  'updatedOn',
+] as const;
 
 /**
  * Markers: pattern-piece layouts with server-authoritative geometry math.
@@ -49,20 +66,35 @@ export class MarkersService {
 
   // ── queries ─────────────────────────────────────────────────────────────
 
-  async list(query: { search?: string; status?: string; page?: number; pageSize?: number }) {
+  async list(query: {
+    search?: string;
+    status?: string;
+    filters?: string;
+    sortBy?: string;
+    sortOrder?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
-    const where: Record<string, unknown> = { isDeleted: false };
+    // filters JSON (UI convention) + legacy bare status param for compat.
+    const filters = parseListFilters(query.filters, MARKER_FILTER_FIELDS);
+    const where: Record<string, unknown> = { isDeleted: false, ...filters };
     if (query.status) where['status'] = query.status;
     if (query.search) {
       where['OR'] = ['number', 'styleRef', 'fabricType', 'color'].map((f) => ({
         [f]: { contains: query.search, mode: 'insensitive' },
       }));
     }
+    const { orderBy } = resolveListSort(query.sortBy, query.sortOrder, {
+      sortableFields: MARKER_SORTABLE_FIELDS,
+      defaultSortBy: 'updatedOn',
+      defaultSortOrder: 'desc',
+    });
     const [items, total] = await Promise.all([
       this.prisma.client.marker.findMany({
         where,
-        orderBy: { updatedOn: 'desc' },
+        orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: { _count: { select: { pieces: true, layPlans: true } } },

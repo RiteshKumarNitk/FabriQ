@@ -84,6 +84,8 @@ model Tenant {
 
   // Phase 3 — Cutting Room
   fabricRolls        FabricRoll[]
+  fabrics            Fabric[]
+  remnants           Remnant[]
   markers            Marker[]
   cutOrders          CutOrder[]
   measurementSessions FabricMeasurement[]
@@ -961,6 +963,11 @@ model FabricInspectionDefect {
   tenantId     String
   inspectionId String
   defectName   String
+  // Verified 4-point scoring inputs: when `points` is not supplied by the
+  // inspector it is derived from the defect SIZE along the fabric (≤3" → 1,
+  // ≤6" → 2, ≤9" → 3, else 4) and holes/openings always score 4.
+  sizeCm       Decimal? @db.Decimal(10, 2) // defect length along the fabric (base cm)
+  defectType   DefectType @default(OTHER)
   points       Int // 1–4 per the 4-point inspection system
   notes        String?
   createdOn    DateTime @default(now())
@@ -1056,6 +1063,7 @@ model FabricRoll {
   tenantId        String
   number          String // e.g. R-00125 (per-tenant sequence)
   // ── identity ──
+  fabricId        String? // link to the Fabric master (optional; free-text identity still supported)
   grnRollId       String? // link to procurement when the roll arrived via GRN
   fabricName      String?
   fabricType      String?
@@ -1091,7 +1099,9 @@ model FabricRoll {
   version         Int              @default(0)
 
   tenant        Tenant            @relation(fields: [tenantId], references: [id])
+  fabric        Fabric?           @relation(fields: [fabricId], references: [id])
   grnRoll       GrnRoll?          @relation(fields: [grnRollId], references: [id])
+  remnants      Remnant[]
   measurements  FabricMeasurement[]
   segments      FabricSegment[]
   defects       FabricDefect[]
@@ -1102,9 +1112,51 @@ model FabricRoll {
   @@unique([tenantId, number])
   @@index([tenantId])
   @@index([tenantId, status])
+  @@index([tenantId, fabricId])
 }
 
-/// One measurement session on a roll (length check + multi-point width).
+/// A physically separated leftover of usable fabric, cut away from a roll at
+/// close-out. Distinct from "remaining roll" (fabric still attached to the
+/// continuous roll) and from waste (no longer usable). Created only by the
+/// explicit close-roll/remnant workflow; consumption from a remnant is a
+/// documented V1 limitation (the cutting engine sources continuous rolls).
+model Remnant {
+  id             String   @id @default(uuid())
+  tenantId       String
+  number         String // RM-0001 (per-tenant sequence)
+  sourceRollId   String
+  // Where on the parent roll this remnant was cut from (absolute cm).
+  sourceStartCm  Decimal  @db.Decimal(12, 2)
+  sourceEndCm    Decimal  @db.Decimal(12, 2)
+  lengthCm       Decimal  @db.Decimal(12, 2)
+  widthCm        Decimal  @db.Decimal(8, 2) // nominal width inherited from the parent roll
+  usableWidthCm  Decimal  @db.Decimal(8, 2)
+  status         RemnantStatus @default(AVAILABLE)
+  location       String?
+  // identity snapshot from the parent roll at creation time
+  fabricName     String?
+  fabricType     String?
+  color          String?
+  shadeLot       String?
+  gsm            Decimal? @db.Decimal(6, 2)
+  notes          String?
+  createdOn      DateTime @default(now())
+  createdBy      String?
+  updatedOn      DateTime @updatedAt
+  updatedBy      String?
+  deletedOn      DateTime?
+  deletedBy      String?
+  isDeleted      Boolean  @default(false)
+  version        Int      @default(0)
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id])
+  sourceRoll FabricRoll @relation(fields: [sourceRollId], references: [id])
+
+  @@unique([tenantId, number])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([sourceRollId])
+}
 /// Multiple width readings: beginning / middle / end (+ extra points).
 model FabricMeasurement {
   id            String     @id @default(uuid())
@@ -1210,27 +1262,33 @@ model RollTransaction {
 /// A reusable style-level pattern set (a “style folder” of pattern pieces).
 /// Markers copy pieces from a set; the copies keep their real dimensions.
 model PatternSet {
-  id         String   @id @default(uuid())
-  tenantId   String
-  code       String // e.g. SHIRT-001
-  name       String
-  styleRef   String?
-  notes      String?
-  createdOn  DateTime @default(now())
-  createdBy  String?
-  updatedOn  DateTime @updatedAt
-  updatedBy  String?
-  deletedOn  DateTime?
-  deletedBy  String?
-  isDeleted  Boolean  @default(false)
-  version    Int      @default(0)
+  id          String       @id @default(uuid())
+  tenantId    String
+  code        String // e.g. SHIRT-001 — unique per tenant per revision label
+  name        String
+  styleRef    String?
+  version     Int          @default(1) // revision label (v1, v2, v3…). A new revision is a NEW row that copies pieces — production patterns are never overwritten in place.
+  status      EntityStatus @default(ACTIVE)
+  description String?
+  supersedesId String? @unique // the PatternSet this revision replaces
+  notes       String?
+  createdOn   DateTime     @default(now())
+  createdBy   String?
+  updatedOn   DateTime     @updatedAt
+  updatedBy   String?
+  deletedOn   DateTime?
+  deletedBy   String?
+  isDeleted   Boolean      @default(false)
 
-  tenant Tenant         @relation(fields: [tenantId], references: [id])
-  pieces PatternPiece[]
-  markers Marker[]
+  tenant     Tenant         @relation(fields: [tenantId], references: [id])
+  pieces     PatternPiece[]
+  markers    Marker[]
+  supersedes PatternSet?    @relation("PatternSetRevisions", fields: [supersedesId], references: [id])
+  supersededBy PatternSet?  @relation("PatternSetRevisions")
 
   @@unique([tenantId, code])
   @@index([tenantId])
+  @@index([tenantId, styleRef])
 }
 
 /// A pattern piece master (per size). Dimensions are real-world, base unit cm.
@@ -1446,6 +1504,34 @@ model CutOperation {
   @@index([layPlanId])
 }
 
+model Fabric {
+  id           String       @id @default(uuid())
+  tenantId     String
+  code         String // e.g. CT-TWILL-01
+  name         String // e.g. Cotton Twill
+  fabricType   String? // Woven / Knit…
+  composition  String? // e.g. 100% Cotton
+  gsm          Decimal?     @db.Decimal(6, 2)
+  defaultWidthCm Decimal?   @db.Decimal(8, 2) // default nominal width (base cm)
+  defaultWidthUnit LengthUnit @default(INCHES) // display unit for the default width
+  description  String?
+  status       EntityStatus @default(ACTIVE)
+  createdOn    DateTime     @default(now())
+  createdBy    String?
+  updatedOn    DateTime     @updatedAt
+  updatedBy    String?
+  deletedOn    DateTime?
+  deletedBy    String?
+  isDeleted    Boolean      @default(false)
+  version      Int          @default(0)
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id])
+  rolls      FabricRoll[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+}
+
 // ── Phase 3 — Cutting Room enums ──────────────────────────────────────────
 
 enum LengthUnit {
@@ -1464,6 +1550,13 @@ enum FabricRollStatus {
   IN_CUTTING
   CONSUMED
   CLOSED
+}
+
+enum RemnantStatus {
+  AVAILABLE
+  RESERVED
+  CONSUMED
+  ARCHIVED
 }
 
 enum SegmentType {

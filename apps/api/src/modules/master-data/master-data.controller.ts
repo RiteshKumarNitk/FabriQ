@@ -6,6 +6,7 @@ import { MasterDataService } from './master-data.service';
 import {
   CreateMasterDataCategoryDto,
   CreateMasterDataItemDto,
+  CreateItemWithCategoryDto,
   UpdateMasterDataCategoryDto,
   UpdateMasterDataItemDto,
 } from './dto/master-data.dto';
@@ -54,7 +55,25 @@ export class MasterDataController {
     return this.masterData.options(category);
   }
 
-  // items
+  // items (flat, category chosen via body/query — used by the admin UI)
+  @Get('items')
+  @Permissions('masterdata:read')
+  listAllItems(@Query() query: ListQueryDto) {
+    return this.masterData.listAllItems(query);
+  }
+
+  @Get('items/:id')
+  @Permissions('masterdata:read')
+  getItem(@Param('id') id: string) {
+    return this.masterData.getItem(id);
+  }
+
+  @Post('items')
+  @Permissions('masterdata:create')
+  createItemWithCategory(@Body() dto: CreateItemWithCategoryDto) {
+    return this.masterData.createItemWithCategory(dto);
+  }
+
   @Get('categories/:id/items')
   @Permissions('masterdata:read')
   listItems(@Param('id') id: string, @Query() query: ListQueryDto) {

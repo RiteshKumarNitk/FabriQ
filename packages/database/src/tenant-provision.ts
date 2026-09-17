@@ -32,6 +32,9 @@ export const TENANT_ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     'roll:read', 'roll:create', 'roll:update', 'roll:delete',
     'marker:read', 'marker:create', 'marker:update', 'marker:delete',
     'cutorder:read', 'cutorder:create', 'cutorder:update', 'cutorder:delete',
+    'fabric:read', 'fabric:create', 'fabric:update', 'fabric:delete',
+    'pattern:read', 'pattern:create', 'pattern:update', 'pattern:delete',
+    'remnant:read', 'remnant:create', 'remnant:update', 'remnant:delete',
   ],
   SUPERVISOR: [
     'dashboard:read',
@@ -54,6 +57,9 @@ export const TENANT_ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     'roll:read', 'roll:create', 'roll:update',
     'marker:read', 'marker:create', 'marker:update',
     'cutorder:read', 'cutorder:create', 'cutorder:update',
+    'fabric:read', 'fabric:create', 'fabric:update',
+    'pattern:read', 'pattern:create', 'pattern:update',
+    'remnant:read', 'remnant:create', 'remnant:update',
   ],
   OPERATOR: [
     'dashboard:read',
@@ -64,6 +70,7 @@ export const TENANT_ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     'inspection:read', 'warehousereceipt:read', 'stock:read',
     // Cutting (read-only)
     'roll:read', 'marker:read', 'cutorder:read',
+    'fabric:read', 'pattern:read', 'remnant:read',
   ],
   VIEWER: [
     'dashboard:read', 'factory:read', 'warehouse:read', 'orgunit:read',
@@ -73,6 +80,7 @@ export const TENANT_ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     'inspection:read', 'warehousereceipt:read', 'stock:read',
     // Cutting (read-only)
     'roll:read', 'marker:read', 'cutorder:read',
+    'fabric:read', 'pattern:read', 'remnant:read',
   ],
 };
 

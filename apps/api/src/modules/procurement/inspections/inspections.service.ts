@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { LengthUnit, scoreFourPoint, toBase } from '@fabriq/shared';
 import { getRequestContext } from '@fabriq/database';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ListQueryDto } from '../../../common/pagination.dto';
@@ -7,12 +8,14 @@ import { NumberingService } from '../numbering.service';
 import { CreateInspectionDto, UpdateInspectionDto } from './dto/inspection.dto';
 
 /**
- * 4-point fabric inspection:
- *   • each defect is scored 1–4 points depending on severity/length;
- *   • totalPoints = Σ points;  qualityScore = max(0, 100 − totalPoints);
- *   • decision thresholds: ≥ 90 → APPROVED, ≥ 80 → SECOND_QUALITY, else REJECTED.
- * The decision can be overridden explicitly; only APPROVED / SECOND_QUALITY
- * rolls become eligible for warehouse receipt.
+ * 4-point fabric inspection — scoring is delegated to the shared verified
+ * engine (@fabriq/shared `scoreFourPoint`): size-based point assignment
+ * (≤3" → 1, ≤6" → 2, ≤9" → 3, else 4; holes always 4), WIDTH-normalized
+ * points per 100 m² as the decision basis (≤15 APPROVED, ≤30 SECOND_QUALITY,
+ * else REJECTED), and the classic linear pts/100 m kept for reporting.
+ * Explicit inspector points are honored (clamped 1–4). The decision can be
+ * overridden explicitly; only APPROVED / SECOND_QUALITY rolls become
+ * eligible for warehouse receipt.
  */
 @Injectable()
 export class InspectionsService {
@@ -48,9 +51,11 @@ export class InspectionsService {
         skip: args.skip,
         take: args.take,
         include: {
-          grnRoll: {
-            select: { id: true, rollNumber: true, fabricType: true, color: true, grn: { select: { number: true } } },
-          },
+        grnRoll: {
+          // length/width feed the live 4-point preview in the inspection form
+          // (the server always re-scores authoritatively on save).
+          select: { id: true, rollNumber: true, fabricType: true, color: true, length: true, width: true, grn: { select: { number: true } } },
+        },
           inspector: { select: { id: true, firstName: true, lastName: true } },
           _count: { select: { defects: true } },
         },
@@ -88,8 +93,8 @@ export class InspectionsService {
       throw new BadRequestException('This roll has already been inspected');
     }
     const { grnRollId, inspectorId, defects, ...header } = dto;
-    const { totalPoints, pointsPer100m, qualityScore } = this.score(defects ?? [], Number(roll.length));
-    const decision = dto.decision ?? this.decide(qualityScore);
+    const { totalPoints, pointsPer100m, qualityScore } = this.score(defects ?? [], roll);
+    const decision = dto.decision ?? this.decide(pointsPer100m);
     const number = await this.numbering.next('INSP');
     const inspection = await this.raw.fabricInspection.create({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -118,11 +123,8 @@ export class InspectionsService {
     const existing = await this.getById(id);
     const { defects, grnRollId, inspectorId, ...header } = dto;
     const defectsToScore = defects ?? existing.defects;
-    const { totalPoints, pointsPer100m, qualityScore } = this.score(
-      defectsToScore.map((d: any) => ({ points: d.points })),
-      Number(existing.grnRoll.length),
-    );
-    const decision = dto.decision ?? this.decide(qualityScore);
+    const { totalPoints, pointsPer100m, qualityScore } = this.score(defectsToScore as any[], existing.grnRoll);
+    const decision = dto.decision ?? this.decide(pointsPer100m);
     await this.raw.$transaction(async (tx) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await tx.fabricInspection.update({
@@ -169,23 +171,31 @@ export class InspectionsService {
   // ── helpers ─────────────────────────────────────────────────────────────
 
   /**
-   * Industry-standard 4-point evaluation:
-   *   • each defect scores 1–4 points (severity × extent);
-   *   • points are normalized per 100 linear meters (the standard unit of
-   *     fabric grading): pointsPer100m = totalPoints / (length/100);
-   *   • qualityScore = max(0, 100 − pointsPer100m);
-   *   • decision thresholds: ≤ 15 pts/100m → APPROVED, ≤ 30 → SECOND_QUALITY,
-   *     above → REJECTED. An explicit decision overrides the computed one.
+   * Verified 4-point scoring via the shared engine. Length comes from the
+   * GRN roll in meters; the roll width (inches per the GRN capture form)
+   * feeds the width normalization. `pointsPer100m` stores the DECISION
+   * basis (points per 100 m²) and `qualityScore` the derived quality %.
    */
-  private score(defects: Array<{ points: number }>, lengthMeters: number) {
-    const totalPoints = defects.reduce((sum, d) => sum + Math.max(0, Math.min(4, Number(d.points))), 0);
-    const meters = Math.max(lengthMeters || 1, 1);
-    const pointsPer100m = (totalPoints / meters) * 100;
-    const qualityScore = Math.max(0, Math.min(100, 100 - pointsPer100m));
+  private score(
+    defects: Array<{ sizeCm?: unknown; defectType?: unknown; points?: unknown }>,
+    roll: { length?: unknown; width?: unknown },
+  ) {
+    const lengthMeters = Number(roll.length ?? 0);
+    const widthCm = roll.width != null ? toBase(Number(roll.width), LengthUnit.INCHES) : null;
+    const result = scoreFourPoint({
+      defects: (defects ?? []).map((d) => ({
+        size: d.sizeCm != null ? Number(d.sizeCm) : null,
+        sizeUnit: LengthUnit.CM,
+        points: d.points != null ? Number(d.points) : null,
+        defectType: d.defectType != null ? String(d.defectType) : null,
+      })),
+      lengthMeters,
+      widthCm,
+    });
     return {
-      totalPoints,
-      pointsPer100m: Math.round(pointsPer100m * 100) / 100,
-      qualityScore: Math.round(qualityScore * 100) / 100,
+      totalPoints: result.totalPoints,
+      pointsPer100m: result.pointsPer100SqMeters,
+      qualityScore: result.qualityPct,
     };
   }
 

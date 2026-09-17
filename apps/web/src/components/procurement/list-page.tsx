@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Download, Plus, RefreshCw, Search } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, Download, Plus, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { list } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
@@ -18,6 +18,8 @@ export interface ListColumn<T = Record<string, unknown>> {
   key: string;
   label: string;
   className?: string;
+  /** server supports sortBy=<key> for this column (must be whitelisted server-side) */
+  sortable?: boolean;
   /** friendly value renderer; default falls back to the raw value */ 
   render?: (row: T) => React.ReactNode;
 }
@@ -61,6 +63,8 @@ export function ProcurementListPage({
   const [pageSize, setPageSize] = useState(20);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
+  const [sortBy, setSortBy] = useState<string | null>(null);
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -68,6 +72,10 @@ export function ProcurementListPage({
       const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
       if (search) params.set('search', search);
       if (status) params.set('filters', JSON.stringify({ [statusField]: status }));
+      if (sortBy) {
+        params.set('sortBy', sortBy);
+        params.set('sortOrder', sortOrder);
+      }
       const res = await list<Record<string, unknown>>(`${apiPath}?${params.toString()}`);
       setItems(res.items);
       setTotal(res.meta.total);
@@ -76,7 +84,21 @@ export function ProcurementListPage({
     } finally {
       setLoading(false);
     }
-  }, [apiPath, page, pageSize, search, status, statusField]);
+  }, [apiPath, page, pageSize, search, status, statusField, sortBy, sortOrder]);
+
+  /** asc → desc → clear */
+  function toggleSort(key: string) {
+    if (sortBy !== key) {
+      setSortBy(key);
+      setSortOrder('asc');
+    } else if (sortOrder === 'asc') {
+      setSortOrder('desc');
+    } else {
+      setSortBy(null);
+      setSortOrder('desc');
+    }
+    setPage(1);
+  }
 
   useEffect(() => {
     void fetchItems();
@@ -170,7 +192,27 @@ export function ProcurementListPage({
             <thead>
               <tr className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 {columns.map((c) => (
-                  <th key={c.key} className={cn('px-4 py-2.5 font-medium', c.className)}>{c.label}</th>
+                  <th key={c.key} className={cn('px-4 py-2.5 font-medium', c.className)}>
+                    {c.sortable ? (
+                      <button
+                        type="button"
+                        onClick={() => toggleSort(c.key)}
+                        className={cn(
+                          'inline-flex items-center gap-1 transition-colors hover:text-foreground',
+                          sortBy === c.key && 'text-foreground',
+                        )}
+                      >
+                        {c.label}
+                        {sortBy === c.key ? (
+                          sortOrder === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                        ) : (
+                          <ArrowUpDown className="h-3 w-3 opacity-40" />
+                        )}
+                      </button>
+                    ) : (
+                      c.label
+                    )}
+                  </th>
                 ))}
               </tr>
             </thead>

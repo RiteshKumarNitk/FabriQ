@@ -15,12 +15,18 @@ export class MarkersController {
   list(
     @Query('search') search?: string,
     @Query('status') status?: string,
+    @Query('filters') filters?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     return this.markers.list({
       search,
       status,
+      filters,
+      sortBy,
+      sortOrder,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });

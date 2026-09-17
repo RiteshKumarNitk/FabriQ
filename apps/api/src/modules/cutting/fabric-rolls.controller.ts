@@ -22,12 +22,18 @@ export class FabricRollsController {
   list(
     @Query('search') search?: string,
     @Query('status') status?: string,
+    @Query('filters') filters?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     return this.rolls.list({
       search,
       status,
+      filters,
+      sortBy,
+      sortOrder,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });
@@ -91,5 +97,15 @@ export class FabricRollsController {
   @Permissions('roll:update')
   adjust(@Param('id') id: string, @Body() dto: AdjustmentDto) {
     return this.rolls.adjust(id, dto);
+  }
+
+  /** Close-out: cut the remaining usable fabric off the roll as a remnant. */
+  @Post(':id/close-roll')
+  @Permissions('remnant:create')
+  closeRoll(
+    @Param('id') id: string,
+    @Body() dto: { lengthCm?: number; location?: string; notes?: string },
+  ) {
+    return this.rolls.closeRoll(id, dto);
   }
 }

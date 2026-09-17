@@ -16,12 +16,18 @@ export class ProductionController {
   listCutOrders(
     @Query('search') search?: string,
     @Query('status') status?: string,
+    @Query('filters') filters?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     return this.production.listCutOrders({
       search,
       status,
+      filters,
+      sortBy,
+      sortOrder,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });
@@ -86,6 +92,9 @@ export class ProductionController {
     @Query('cutOrderId') cutOrderId?: string,
     @Query('rollId') rollId?: string,
     @Query('status') status?: string,
+    @Query('search') search?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
@@ -93,6 +102,9 @@ export class ProductionController {
       cutOrderId,
       rollId,
       status,
+      search,
+      sortBy,
+      sortOrder,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });

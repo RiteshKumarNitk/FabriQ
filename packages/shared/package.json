@@ -10,15 +10,18 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "ts-node -P tsconfig.test.json test/cutting.test.ts"
+    "test": "ts-node -P tsconfig.test.json test/cutting.test.ts && ts-node -P tsconfig.test.json test/marker.test.ts && ts-node -P tsconfig.test.json test/ledger.test.ts && ts-node -P tsconfig.test.json test/inspection.test.ts && ts-node -P tsconfig.test.json test/production.test.ts"
   },
   "devDependencies": {
     "ts-node": "^10.9.2",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "^5.0.1"
   }
 }

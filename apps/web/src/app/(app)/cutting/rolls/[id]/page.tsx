@@ -106,6 +106,11 @@ export default function RollDetailPage() {
   const [dSeverity, setDSeverity] = useState<DefectSeverity>(DefectSeverity.MAJOR);
   const [dNotes, setDNotes] = useState('');
 
+  // close-out / remnant form
+  const [showClose, setShowClose] = useState(false);
+  const [remnantLength, setRemnantLength] = useState('');
+  const [remnantLocation, setRemnantLocation] = useState('');
+
   const load = useCallback(async () => {
     try {
       const data = await http.get<RollDetail>(`/fabric-rolls/${params.id}`);
@@ -139,6 +144,23 @@ export default function RollDetailPage() {
     await http.post(path, body);
     toast.success('Saved');
     await load();
+  }
+
+  async function submitCloseRoll(e: React.FormEvent) {
+    e.preventDefault();
+    try {
+      const res = await http.post<{ remnant: { number: string } }>(`/fabric-rolls/${roll!.id}/close-roll`, {
+        ...(remnantLength ? { lengthCm: Number(remnantLength) } : {}),
+        location: remnantLocation.trim() || undefined,
+      });
+      toast.success(`Remnant ${res.remnant.number} created`);
+      setShowClose(false);
+      setRemnantLength('');
+      setRemnantLocation('');
+      await load();
+    } catch (err) {
+      toast.error((err as Error).message ?? 'Failed to close the roll');
+    }
   }
 
   async function submitMeasurement(e: React.FormEvent) {
@@ -237,6 +259,41 @@ export default function RollDetailPage() {
           </div>
         ) : null}
       </Card>
+
+      {/* Close-out */}
+      {roll.status !== FabricRollStatus.CLOSED && roll.status !== FabricRollStatus.CONSUMED ? (
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold">Close roll / create remnant</h3>
+                <p className="text-xs text-muted-foreground">
+                  Cut the remaining usable fabric off the roll as a physically separated remnant. The roll's
+                  ledger keeps the REMNANT entry and its remaining balance never goes negative.
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => setShowClose(!showClose)}>
+                {showClose ? 'Cancel' : 'Close roll…'}
+              </Button>
+            </div>
+            {showClose ? (
+              <form onSubmit={submitCloseRoll} className="grid gap-3 sm:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label>Remnant length ({lu.toLowerCase()}) — blank = all remaining</Label>
+                  <Input type="number" min={0} step="0.01" value={remnantLength} onChange={(e) => setRemnantLength(e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Storage location</Label>
+                  <Input value={remnantLocation} onChange={(e) => setRemnantLocation(e.target.value)} placeholder="Rack / shelf" />
+                </div>
+                <div className="flex items-end">
+                  <Button type="submit" size="sm">Create remnant & close</Button>
+                </div>
+              </form>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Measurement */}

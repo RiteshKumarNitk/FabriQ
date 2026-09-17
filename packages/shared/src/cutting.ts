@@ -244,6 +244,7 @@ export function summarizeRoll(input: RollSummaryInput): RollSummaryResult {
   let reserved = 0;
   let waste = 0;
   let remnant = 0;
+  let adjustmentDelta = 0;
   for (const e of input.ledger) {
     const q = Math.abs(e.quantityCm);
     switch (e.type) {
@@ -259,11 +260,20 @@ export function summarizeRoll(input: RollSummaryInput): RollSummaryResult {
       case 'REMNANT':
         remnant += q;
         break;
+      case 'ADJUSTMENT':
+        // Signed correction rows (the service applies them to
+        // remainingLengthCm directly) — replay them so the recomputed
+        // summary always reconciles with the stored balance.
+        adjustmentDelta += e.quantityCm;
+        break;
       default:
-        break; // MEASURED / ADJUSTMENT / DEFECT_MARKED don't move material
+        break; // MEASURED / DEFECT_MARKED don't move material
     }
   }
-  const remaining = Math.max(0, round4(input.originalLengthCm - consumed - waste - remnant));
+  const remaining = Math.max(
+    0,
+    round4(input.originalLengthCm - consumed - waste - remnant + adjustmentDelta),
+  );
   return {
     originalLengthCm: round4(input.originalLengthCm),
     consumedCm: round4(consumed),
@@ -366,4 +376,116 @@ export function fitsInSegment(
 ): boolean {
   if (segment.type !== SegmentType.AVAILABLE) return false;
   return segment.endCm - segment.startCm >= markerLengthCm - 1e-6;
+}
+
+// ── Segment partition (roll timeline) ────────────────────────────────────
+
+export interface PartitionDefect {
+  id: string;
+  code?: string | null;
+  startCm: number;
+  endCm: number;
+}
+
+export interface PartitionLay {
+  id: string;
+  /** Absolute placement on the roll (cm). */
+  startCm: number;
+  endCm: number;
+  /** Completed lays are CONSUMED; otherwise RESERVED. */
+  completed: boolean;
+}
+
+export interface PartitionRow {
+  startCm: number;
+  endCm: number;
+  type: SegmentType;
+  refType?: string;
+  refId?: string;
+  label?: string;
+}
+
+/**
+ * Pure segment-partition builder — THE authoritative roll-timeline logic.
+ *
+ * Splits [0, total] into non-overlapping cells at every defect/lay boundary
+ * and classifies each cell: an active lay span wins over a defect (a lay can
+ * never be placed over a defect, so a lay never overlaps a defect span in
+ * practice; if data ever says otherwise the lay wins and the inconsistency
+ * stays visible), a defect span becomes DEFECT, everything else AVAILABLE.
+ * Idempotent — the same inputs always produce the same rows.
+ */
+export function buildSegmentPartition(input: {
+  totalCm: number;
+  defects: PartitionDefect[];
+  lays: PartitionLay[];
+  /** Closed-out remnants cut away from the roll — REMNANT cells. */
+  remnants?: Array<{ id: string; number?: string | null; startCm: number; endCm: number }>;
+}): PartitionRow[] {
+  const total = input.totalCm;
+  const rows: PartitionRow[] = [];
+  const push = (start: number, end: number, type: SegmentType, refType?: string, refId?: string, label?: string) => {
+    if (end - start <= 1e-6) return;
+    rows.push({ startCm: round4(start), endCm: round4(end), type, refType, refId, label });
+  };
+
+  const laySegmentTypes = new Map<string, SegmentType>();
+  const laySpans = new Map<string, { start: number; end: number }>();
+  const remnantSpans = new Map<string, { start: number; end: number; number?: string | null }>();
+  const events = new Set<number>([0, total]);
+  for (const d of input.defects) {
+    events.add(d.startCm);
+    events.add(Math.min(d.endCm, total));
+  }
+  for (const lay of input.lays) {
+    const s = lay.startCm;
+    const e = Math.min(lay.endCm, total);
+    if (e > s) {
+      events.add(Math.max(0, s));
+      events.add(e);
+      laySegmentTypes.set(lay.id, lay.completed ? SegmentType.CONSUMED : SegmentType.RESERVED);
+      laySpans.set(lay.id, { start: s, end: e });
+    }
+  }
+  for (const r of input.remnants ?? []) {
+    const s = Math.max(0, r.startCm);
+    const e = Math.min(r.endCm, total);
+    if (e > s) {
+      events.add(s);
+      events.add(e);
+      remnantSpans.set(r.id, { start: s, end: e, number: r.number });
+    }
+  }
+
+  const sorted = [...events].sort((a, b) => a - b);
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const s = sorted[i];
+    const e = sorted[i + 1];
+    if (e - s <= 1e-6) continue;
+    const remnant = [...remnantSpans.entries()].find(
+      ([, span]) => span.start <= s + 1e-6 && span.end >= e - 1e-6,
+    );
+    if (remnant) {
+      const [remnantId, span] = remnant;
+      push(s, e, SegmentType.REMNANT, 'remnant', remnantId, `Remnant ${span.number ?? ''}`.trim());
+      continue;
+    }
+    const lay = [...laySpans.entries()].find(
+      ([, span]) => span.start <= s + 1e-6 && span.end >= e - 1e-6,
+    );
+    if (lay) {
+      const [layId] = lay;
+      push(s, e, laySegmentTypes.get(layId) ?? SegmentType.RESERVED, 'lay-plan', layId, `Lay ${layId.slice(0, 8)}`);
+      continue;
+    }
+    const defect = input.defects.find(
+      (d) => d.startCm <= s + 1e-6 && d.endCm >= e - 1e-6,
+    );
+    if (defect) {
+      push(s, e, SegmentType.DEFECT, 'defect', defect.id, `Defect ${defect.code ?? ''}`.trim());
+      continue;
+    }
+    push(s, e, SegmentType.AVAILABLE);
+  }
+  return rows;
 }

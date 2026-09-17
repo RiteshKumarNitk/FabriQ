@@ -34,6 +34,7 @@ interface WR {
     grn: { id: string; number: string };
     purchaseOrderItem?: { itemName: string; unit: string; rate: number } | null;
     inspection?: { id: string; decision: string; qualityScore: number } | null;
+    fabricRolls?: Array<{ id: string; number: string; status: string }> | null;
   };
 }
 
@@ -112,6 +113,14 @@ export default function WarehouseReceiptDetailPage() {
                 ) : '—'}
               </div>
               <div><span className="text-muted-foreground">Unit cost: </span>{doc.grnRoll.purchaseOrderItem?.rate ? money(doc.grnRoll.purchaseOrderItem.rate) : '—'}</div>
+              {doc.grnRoll.fabricRolls?.map((r) => (
+                <div key={r.id}>
+                  <span className="text-muted-foreground">Cutting roll: </span>
+                  <Link className="underline" href={`/cutting/rolls/${r.id}`}>
+                    <span className="font-mono">{r.number}</span>
+                  </Link>
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>

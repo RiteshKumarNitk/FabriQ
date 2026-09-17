@@ -5,6 +5,8 @@ import { MarkersService } from './markers.service';
 import { MarkersController } from './markers.controller';
 import { ProductionService } from './production.service';
 import { ProductionController } from './production.controller';
+import { RemnantsService } from './remnants.service';
+import { RemnantsController } from './remnants.controller';
 import { NumberingService } from '../procurement/numbering.service';
 import { ProcurementModule } from '../procurement/procurement.module';
 
@@ -15,8 +17,8 @@ import { ProcurementModule } from '../procurement/procurement.module';
  */
 @Module({
   imports: [ProcurementModule],
-  controllers: [FabricRollsController, MarkersController, ProductionController],
-  providers: [FabricRollsService, MarkersService, ProductionService, NumberingService],
+  controllers: [FabricRollsController, MarkersController, ProductionController, RemnantsController],
+  providers: [FabricRollsService, MarkersService, ProductionService, RemnantsService, NumberingService],
   exports: [FabricRollsService],
 })
 export class CuttingModule {}

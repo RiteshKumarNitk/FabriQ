@@ -18,6 +18,7 @@ export class WorkflowsController {
 
   // definitions
   @Get()
+  @Get('definitions')
   @Permissions('workflow:read')
   listDefinitions(@Query() query: ListQueryDto) {
     return this.workflows.listDefinitions(query);

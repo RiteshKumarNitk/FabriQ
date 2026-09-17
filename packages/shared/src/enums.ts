@@ -253,3 +253,11 @@ export enum CutOperationStatus {
   COMPLETED = 'COMPLETED',
   CANCELLED = 'CANCELLED',
 }
+
+/** Lifecycle of a physically separated fabric remnant. */
+export enum RemnantStatus {
+  AVAILABLE = 'AVAILABLE',
+  RESERVED = 'RESERVED',
+  CONSUMED = 'CONSUMED',
+  ARCHIVED = 'ARCHIVED',
+}

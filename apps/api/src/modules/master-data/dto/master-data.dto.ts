@@ -1,5 +1,5 @@
 import { PartialType } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsObject, IsOptional, IsString, Matches, MaxLength, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsInt, IsNotEmpty, IsObject, IsOptional, IsString, Matches, MaxLength, Min, MinLength } from 'class-validator';
 
 export class CreateMasterDataCategoryDto {
   @IsString()
@@ -47,3 +47,10 @@ export class CreateMasterDataItemDto {
 }
 
 export class UpdateMasterDataItemDto extends PartialType(CreateMasterDataItemDto) {}
+
+/** POST /master-data/items — flat create used by the admin UI (category in body). */
+export class CreateItemWithCategoryDto extends CreateMasterDataItemDto {
+  @IsString()
+  @IsNotEmpty()
+  categoryId: string;
+}

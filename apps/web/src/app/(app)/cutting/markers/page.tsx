@@ -21,16 +21,16 @@ export default function MarkersPage() {
       searchPlaceholder="Search by number, style, fabric…"
       rowHref={(r) => `/cutting/markers/${r.id}`}
       columns={[
-        { key: 'number', label: 'Marker', render: (r) => <span className="font-mono font-medium">{String(r.number)}</span> },
-        { key: 'styleRef', label: 'Style', render: (r) => (r.styleRef as string) ?? '—' },
-        { key: 'fabricType', label: 'Fabric', render: (r) => (r.fabricType as string) ?? '—' },
-        { key: 'color', label: 'Color', render: (r) => (r.color as string) ?? '—' },
-        { key: 'widthCm', label: 'Width', render: (r) => fmtLength(Number(r.widthCm), LengthUnit.INCHES, 1) },
-        { key: 'lengthCm', label: 'Length', render: (r) => fmtLength(Number(r.lengthCm), LengthUnit.METERS) },
-        { key: 'garmentsPerMarker', label: 'Garments', render: (r) => String(r.garmentsPerMarker ?? '—') },
-        { key: 'efficiencyPct', label: 'Efficiency', render: (r) => `${Number(r.efficiencyPct ?? 0).toFixed(1)}%` },
+        { key: 'number', label: 'Marker', sortable: true, render: (r) => <span className="font-mono font-medium">{String(r.number)}</span> },
+        { key: 'styleRef', label: 'Style', sortable: true, render: (r) => (r.styleRef as string) ?? '—' },
+        { key: 'fabricType', label: 'Fabric', sortable: true, render: (r) => (r.fabricType as string) ?? '—' },
+        { key: 'color', label: 'Color', sortable: true, render: (r) => (r.color as string) ?? '—' },
+        { key: 'widthCm', label: 'Width', sortable: true, render: (r) => fmtLength(Number(r.widthCm), LengthUnit.INCHES, 1) },
+        { key: 'lengthCm', label: 'Length', sortable: true, render: (r) => fmtLength(Number(r.lengthCm), LengthUnit.METERS) },
+        { key: 'garmentsPerMarker', label: 'Garments', sortable: true, render: (r) => String(r.garmentsPerMarker ?? '—') },
+        { key: 'efficiencyPct', label: 'Efficiency', sortable: true, render: (r) => `${Number(r.efficiencyPct ?? 0).toFixed(1)}%` },
         { key: 'pieces', label: 'Pieces', render: (r) => String((r._count as { pieces?: number })?.pieces ?? '—') },
-        { key: 'status', label: 'Status', render: (r) => <PStatus value={String(r.status)} /> },
+        { key: 'status', label: 'Status', sortable: true, render: (r) => <PStatus value={String(r.status)} /> },
       ]}
     />
   );

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { DefectType, fourPointPoints, LengthUnit, scoreFourPoint, CM_PER_INCH } from '@fabriq/shared';
 import { http } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,6 +21,7 @@ interface PendingRoll {
   fabricType?: string | null;
   color?: string | null;
   length?: number | null;
+  width?: number | null;
   condition: string;
   grn: { id: string; number: string };
   purchaseOrderItem?: { itemName: string } | null;
@@ -27,7 +29,9 @@ interface PendingRoll {
 
 interface DefectRow {
   defectName: string;
-  points: number;
+  sizeCm?: number;
+  defectType?: DefectType;
+  points?: number;
   notes?: string;
 }
 
@@ -58,12 +62,23 @@ export default function InspectionFormPage() {
       .catch(() => setPendingRolls([]));
   }, [rollParam]);
 
-  const totalPoints = defects.reduce((s, d) => s + d.points, 0);
   const roll = pendingRolls.find((r) => r.id === rollId);
-  const meters = Math.max(Number(roll?.length ?? 0) || 1, 1);
-  const pointsPer100m = Math.round((totalPoints / meters) * 10000) / 100;
-  const score = Math.max(0, Math.min(100, Math.round((100 - pointsPer100m) * 100) / 100));
-  const autoDecision = pointsPer100m <= 15 ? 'APPROVED' : pointsPer100m <= 30 ? 'SECOND_QUALITY' : 'REJECTED';
+  // Live scoring via the SAME shared engine the server uses — the preview can
+  // never drift from the recorded grade.
+  const scoreResult = scoreFourPoint({
+    defects: defects.map((d) => ({
+      size: d.sizeCm ?? null,
+      sizeUnit: LengthUnit.CM,
+      points: d.points ?? null,
+      defectType: d.defectType ?? null,
+    })),
+    lengthMeters: Math.max(Number(roll?.length ?? 0) || 0, 0),
+    widthCm: roll?.width != null ? CM_PER_INCH * Number(roll.width) : null,
+  });
+  const totalPoints = scoreResult.totalPoints;
+  const pointsPer100m = scoreResult.pointsPer100SqMeters;
+  const score = scoreResult.qualityPct;
+  const autoDecision = scoreResult.decision;
   const decision = override || autoDecision;
 
   const submit = useCallback(async () => {
@@ -79,7 +94,13 @@ export default function InspectionFormPage() {
         inspectionDate: inspectionDate ? new Date(inspectionDate).toISOString() : undefined,
         remarks: remarks || undefined,
         decision: override || undefined,
-        defects: defects.map((d) => ({ defectName: d.defectName.trim(), points: d.points, notes: d.notes?.trim() || undefined })),
+        defects: defects.map((d) => ({
+          defectName: d.defectName.trim(),
+          sizeCm: d.sizeCm,
+          defectType: d.defectType,
+          ...(d.points != null ? { points: d.points } : {}),
+          notes: d.notes?.trim() || undefined,
+        })),
       });
       toast.success('Inspection recorded');
       router.push(`/procurement/inspections/${doc.id}`);
@@ -171,9 +192,29 @@ export default function InspectionFormPage() {
                     <Label className="text-xs">Defect</Label>
                     <Input value={d.defectName} placeholder="e.g. Hole, Stain, Slub, Broken pick" onChange={(e) => updateDefect(i, { defectName: e.target.value })} />
                   </div>
-                  <div className="w-24 space-y-1">
-                    <Label className="text-xs">Points (1–4)</Label>
-                    <Select value={String(d.points)} onChange={(e) => updateDefect(i, { points: Number(e.target.value) })}>
+                  <div className="w-36 space-y-1">
+                    <Label className="text-xs">Type</Label>
+                    <Select value={d.defectType ?? ''} onChange={(e) => updateDefect(i, { defectType: (e.target.value || undefined) as DefectType | undefined })}>
+                      <option value="">—</option>
+                      {Object.values(DefectType).map((t) => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
+                    </Select>
+                  </div>
+                  <div className="w-28 space-y-1">
+                    <Label className="text-xs">Size (cm)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.1"
+                      value={d.sizeCm ?? ''}
+                      onChange={(e) => updateDefect(i, { sizeCm: e.target.value === '' ? undefined : Number(e.target.value) })}
+                    />
+                  </div>
+                  <div className="w-28 space-y-1">
+                    <Label className="text-xs">Points (auto)</Label>
+                    <Select
+                      value={String(d.points ?? fourPointPoints({ size: d.sizeCm ?? null, sizeUnit: LengthUnit.CM, defectType: d.defectType ?? null }))}
+                      onChange={(e) => updateDefect(i, { points: Number(e.target.value) })}
+                    >
                       {POINT_OPTIONS.map((p) => <option key={p} value={p}>{p} pt</option>)}
                     </Select>
                   </div>
@@ -188,9 +229,13 @@ export default function InspectionFormPage() {
               ))}
             </div>
           )}
-          <Button type="button" variant="outline" size="sm" onClick={() => setDefects([...defects, { defectName: '', points: 1 }])}>
+          <Button type="button" variant="outline" size="sm" onClick={() => setDefects([...defects, { defectName: '' }])}>
             <Plus /> Add defect
           </Button>
+          <p className="text-xs text-muted-foreground">
+            Points are derived from the defect size (≤3" → 1, ≤6" → 2, ≤9" → 3, larger → 4; holes always 4) and
+            the grade normalizes points per 100 m² of fabric. Enter points manually to override.
+          </p>
         </CardContent>
       </Card>
 
