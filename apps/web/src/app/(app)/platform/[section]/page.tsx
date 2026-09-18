@@ -69,7 +69,7 @@ export default function PlatformSectionPage() {
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
             <Icon className="h-7 w-7 text-muted-foreground" />
           </div>
-          <h3 className="text-base font-semibold">In development</h3>
+          <h3 className="text-base font-semibold">Post-V1</h3>
           <p className="max-w-sm text-sm text-muted-foreground">{section.blurb}</p>
           <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground/70">
             <Construction className="h-3.5 w-3.5" />

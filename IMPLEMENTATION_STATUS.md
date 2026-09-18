@@ -220,7 +220,7 @@ Former hypotheses below (pre-verification):
 
 ### D. Data integrity notes
 - Ledger writers are correctly serialized (row locks) — no known drift path; double-cut of a lay decided by exactly one winner.
-- `buildListArgs` (generic admin lists) injects `sortBy` straight into Prisma `orderBy` (no whitelist) — a malicious `sortBy` yields a 500, not injection. The cutting endpoints now whitelist via `resolveListSort`; the generic path should adopt the same.
+- `buildListArgs` (generic admin lists) now **validates `sortBy` against a schema-derived whitelist** (fixed 2026-09-17): the allowed columns are the Prisma model's scalar/enum fields (via the DMMF at runtime), so an unknown or relation column returns a 400 (`Cannot sort by "…"`) instead of a Prisma validation 500. The generic `CrudService.list` passes its model automatically; every direct `buildListArgs` caller (audit, notifications, master-data, stock, workflows, the five procurement services) declares its model too. `sortOrder` was already DTO-validated (`asc|desc`). A services-defined explicit `sortByWhitelist` option is available when a narrower list is wanted; callers without a model/whitelist keep the old silent-fallback behavior so nothing regresses.
 
 ---
 
@@ -244,6 +244,11 @@ Former hypotheses below (pre-verification):
 - ❌ `/fabrics`, `/pattern-sets`, `/remnants` → 404: **the deployed API predates all 2026-09-17 work.** The full new chain is verified locally only. → **Redeploy the API from latest main, run the seed (syncs the new `fabric:*`/`pattern:*`/`remnant:*` permissions to existing tenants' roles), then re-run the smoke.**
 - The web project must be redeployed with `NEXT_PUBLIC_API_URL=https://fabri-q-api.vercel.app/api/v1` set before build (name confirmed from `apps/web/src/lib/api.ts`). Cloudinary (`STORAGE_DRIVER=cloudinary` + 3 credentials) is verified in code with boot-time fail-fast; live values cannot be read remotely.
 
+**Live smoke (2026-09-18, production-readiness audit, read-only):**
+- ✅ `GET /api/v1/health` → 200; ✅ login → access token → `/auth/me` 200 → refresh endpoint returns a new access token (refresh/rotation verified live against the deployed build).
+- ❌ `/fabrics`, `/pattern-sets`, `/remnants`, `/master-data/items`, `/workflows/definitions` all → 404: **the deployment still predates the 2026-09-16 admin/list fixes and all 2026-09-17 work.** Local `main` == `origin/main` (commit `0819ee1`), so this is purely a **Vercel redeploy**, not a code change.
+- `/fabric-rolls?sortBy=zzz` → 200 on the stale build (old silent fallback); expect 400 after redeploy.
+
 **Status legend:** ✅ implemented + verified (unit/e2e) · 🟡 implemented, not fully verified · ❌ missing. Nothing above is marked ✅ on the strength of code alone.
 
 ---
@@ -265,7 +270,7 @@ Former hypotheses below (pre-verification):
 **P2 — Improvement**
 9. ✅ ~~Pattern-set management~~ — **Done**: `/pattern-sets` CRUD + versioned revisions + apply-to-marker + UI pages.
 10. ✅ ~~Remnant workflow~~ — **Done**: close-roll → remnant, REMNANT ledger/segments, inventory page. Remnant-sourced lays/cuts (piece consumption) added 2026-09-17.
-11. Whitelist `sortBy` fields in `buildListArgs` (the cutting endpoints already do); link the plan-calculator from the cut-order detail UI; auto-start approval workflows on submit.
+11. ✅ ~~Whitelist `sortBy` fields in `buildListArgs`~~ — **Done** (schema-derived per-model whitelist, 400 instead of 500 — see §10-D). ✅ Plan-calculator linked from the cut-order detail header (2026-09-18). ~~Auto-start approval workflows on submit~~ — **already implemented**: PR submit calls `WorkflowsService.startInstance` with lazy status sync (`requisitions.service.ts`).
 
 ---
 

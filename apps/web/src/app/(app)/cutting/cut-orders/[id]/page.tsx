@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { ArrowLeft, CheckCircle2, Play, Plus, Scissors, TriangleAlert } from 'lucide-react';
+import { ArrowLeft, Calculator, CheckCircle2, Play, Plus, Scissors, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { CutOrderStatus, LayPlanStatus, LengthUnit, fromBase } from '@fabriq/shared';
 import { http } from '@/lib/api';
@@ -204,6 +204,9 @@ export default function CutOrderDetailPage() {
         {order.status === CutOrderStatus.DRAFT ? (
           <Button size="sm" onClick={approve}><CheckCircle2 /> Approve</Button>
         ) : null}
+        <Button variant="outline" size="sm" asChild>
+          <Link href="/cutting/plan-calculator"><Calculator /> Plan Calculator</Link>
+        </Button>
       </div>
 
       {/* Fulfillment */}
